@@ -4,9 +4,10 @@ import Controller, { fmt } from '@/lib/controller';
 import { useRipple, readFile } from './ui';
 import { PSite, POrient, PLoads, PSystem, PLosses, PReport } from './Pages';
 import DBPage from './DBPage';
+import { Home, NewProject, SavedProjects } from './Home';
 
 const STEPS = [['1', 'المشروع والموقع'], ['2', 'الاتجاه (Tilt / Azimuth)'], ['5', 'الاستهلاك والتعرفة'], ['3', 'النظام والـ Strings'], ['4', 'الخسائر التفصيلية'], ['6', 'المحاكاة والتقرير']];
-const TYPES = { grid: 'مربوط', hybrid: 'هجين', offgrid: 'منفصل' };
+const TYPES = { grid: 'مربوط', hybrid: 'هجين', offgrid: 'منفصل', offgrid_nb: 'منفصل بلا بطاريات' };
 
 export default function App() {
   const ctl = useMemo(() => new Controller(), []);
@@ -14,6 +15,16 @@ export default function App() {
   useEffect(() => { ctl.start(); }, [ctl]);
   useRipple();
   const p = ctl.page;
+  const toasts = <div id="toasts">{ctl.toasts.map(t => <div key={t.id} className={'toast ' + t.k}>{t.t}</div>)}</div>;
+  if (ctl.view !== 'work') return (
+    <div id="land">
+      {ctl.view === 'home' && <Home ctl={ctl} />}
+      {ctl.view === 'new' && <NewProject ctl={ctl} />}
+      {ctl.view === 'saved' && <SavedProjects ctl={ctl} />}
+      {ctl.view === 'db' && <div className="landwrap wide"><button className="back" onClick={() => { ctl.view = 'home'; ctl.emit(); }}>→ الرئيسية</button><DBPage ctl={ctl} /></div>}
+      {toasts}
+    </div>
+  );
   return (
     <div id="app">
       <Sidebar ctl={ctl} />
@@ -29,7 +40,7 @@ export default function App() {
           {p === '7' && <DBPage ctl={ctl} />}
         </div>
       </div>
-      <div id="toasts">{ctl.toasts.map(t => <div key={t.id} className={'toast ' + t.k}>{t.t}</div>)}</div>
+      {toasts}
     </div>
   );
 }
@@ -48,8 +59,8 @@ function Sidebar({ ctl }) {
   );
   return (
     <aside id="side">
-      <div className="logo"><img src="/logo.png" alt="Sanam" style={{ width: 54, height: 'auto', filter: 'drop-shadow(0 0 10px rgba(245,158,11,.35))' }} /><div>Sanam PV<small>Design Tool — الأردن</small></div></div>
-      <button className="newp" onClick={() => ctl.projNew()}>＋ مشروع جديد</button>
+      <div className="logo" style={{ cursor: 'pointer' }} title="الصفحة الرئيسية" onClick={() => { ctl.view = 'home'; ctl.emit(); }}><img src="/logo.png" alt="Sanam" style={{ width: 54, height: 'auto', filter: 'drop-shadow(0 0 10px rgba(245,158,11,.35))' }} /><div>Sanam PV<small>Design Tool — الأردن</small></div></div>
+      <button className="newp" onClick={() => { ctl.view = 'new'; ctl.emit(); }}>＋ مشروع جديد</button>
       <input id="pjQ" placeholder="🔍 بحث بالمشاريع أو العملاء" value={q} onChange={e => setQ(e.target.value)} />
       <div id="tree">
         {items.map(pj => { const cur = pj.unsaved || pj.id === ctl.curPid;

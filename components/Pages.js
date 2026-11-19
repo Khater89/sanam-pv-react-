@@ -10,7 +10,7 @@ export function PSite({ ctl }) {
   return (
     <div className="grid">
       <div className="card"><h2>نوع النظام <small>System type</small></h2>
-        <Sel ctl={ctl} id="stype" bare options={[['grid', 'مربوط على الشبكة (On-grid)'], ['hybrid', 'هجين: شبكة + بطاريات (Hybrid)'], ['offgrid', 'منفصل عن الشبكة + بطاريات (Off-grid / Stand-alone)']]} />
+        <Sel ctl={ctl} id="stype" bare options={[['grid', 'مربوط على الشبكة (On-grid)'], ['hybrid', 'هجين: شبكة + بطاريات (Hybrid)'], ['offgrid', 'منفصل عن الشبكة + بطاريات (Off-grid / Stand-alone)'], ['offgrid_nb', 'منفصل بدون بطاريات (Off-grid / PV direct)']]} />
         <div className="mute" style={{ marginTop: 6 }}>{STYPE_INFO[ctl.stype()]}</div>
         <div className="info">الخطوات: اختار نوع النظام والموقع هون، وبعدين الميل والاتجاه بتبويب 2، وبعدين الفواتير (kWh) أو الأحمال بتبويب 3، والبرنامج بيصمم لحاله. التعديل بتبويب 4، والمحاكاة بتبويب 6.</div>
       </div>
@@ -54,7 +54,7 @@ export function POrient({ ctl }) {
 /* 3 · consumption & tariff */
 export function PLoads({ ctl }) {
   const [imp, setImp] = useState('');
-  const off = ctl.stype() === 'offgrid';
+  const off = ctl.isOff();
   const onFile = async e => {
     const f = e.target.files[0]; if (!f) return; e.target.value = ''; setImp('<div class="mute">جاري قراءة ' + f.name + '…</div>');
     try {
@@ -118,7 +118,7 @@ export function PLoads({ ctl }) {
 
 /* 4 · system & strings */
 export function PSystem({ ctl }) {
-  const off = ctl.stype() === 'offgrid';
+  const off = ctl.isOff();
   return (<>
     <div className="grid">
       <div className="card"><h2>اللوح الشمسي <small>PV module — datasheet</small></h2>
@@ -134,7 +134,11 @@ export function PSystem({ ctl }) {
         <div className="r4"><Fd ctl={ctl} id="iVmin" label="Vmpp min V" /><Fd ctl={ctl} id="iVmpp" label="Vmpp max V" /><Fd ctl={ctl} id="iI" label="Imax/MPPT A" step="0.1" /><Fd ctl={ctl} id="iIsc" label="Isc max/MPPT A" step="0.1" /></div>
         <div className="r2"><Fd ctl={ctl} id="iMx" label="Max eff %" step="0.1" /><Fd ctl={ctl} id="iEu" label="EURO eff %" step="0.1" /></div>
       </div>
-      {ctl.stype() !== 'grid' && <div className="card"><h2>البطاريات <small>Storage — battery bank</small></h2>
+      {ctl.stype() === 'offgrid_nb' && <div className="card nobat-card"><h2>البطاريات <small>غير مستخدمة بهذا النوع</small></h2>
+        <div className="nobat">🔋 النوع المختار <b>منفصل بدون بطاريات</b>، فحساب البطاريات (العدد، السعة، SOC، أيام الاستقلالية) متوقف ومش داخل بالمحاكاة ولا بالتكلفة. الأحمال بتشتغل من الألواح وقت الشمس بس.</div>
+        <button className="b" style={{ marginTop: 8 }} onClick={() => ctl.input('stype', 'offgrid')}>حوّل لـ "منفصل + بطاريات"</button>
+      </div>}
+      {ctl.hasBat() && <div className="card"><h2>البطاريات <small>Storage — battery bank</small></h2>
         <Picker ctl={ctl} id="batP" />
         <div className="r4"><Fd ctl={ctl} id="bV" label="جهد الوحدة V" step="0.1" /><Fd ctl={ctl} id="bK" label="سعة الوحدة kWh" step="0.01" /><Fd ctl={ctl} id="bD" label="DoD %" /><Fd ctl={ctl} id="bR" label="RTE %" /></div>
         <div className="r4"><Fd ctl={ctl} id="bI" label="Imax شحن/تفريغ A" /><Fd ctl={ctl} id="bN" label="عدد الوحدات" /><Fd ctl={ctl} id="bSmin" label="SOC أدنى %" /><Fd ctl={ctl} id="bSmax" label="إيقاف الشحن SOC %" /></div>
