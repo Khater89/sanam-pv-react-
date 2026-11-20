@@ -184,7 +184,39 @@ export function PSystem({ ctl }) {
       <div className="r2"><Sel ctl={ctl} id="mount" label="نوع التركيب" options={[['roof', 'على السطح (هيكل عادي)'], ['elevated', 'على السطح — هيكل مرتفع'], ['ground', 'أرضي / مزرعة']]} />
         <Fd ctl={ctl} id="pk" label="معامل السوق (1 = نموذجي، 0.9 = أرخص 10٪)" step="0.05" /></div></div>
     <Html html={ctl.out.price || ''} />
+    {ctl.stype() === 'offgrid' && <OptCard ctl={ctl} />}
   </>);
+}
+
+
+function OptCard({ ctl }) {
+  const [tol, setTol] = useState(1), R = ctl.optRes, win = ctl.num('bSmax') / 100 - ctl.num('bSmin') / 100;
+  const pct = x => fmt(x * 100, 1) + '%', Yf = (Y, k) => fmt(Y[k], 0);
+  const line = (r, i, isBase) => <tr key={isBase ? 'b' : i} className={isBase ? 'opt-base' : i === 0 ? 'opt-best' : ''}>
+    <td>{isBase ? 'التصميم الحالي' : i === 0 ? '⭐ الأوفر' : 'خيار ' + (i + 1)}</td><td className="n">{r.nMods} لوح<div className="mute">{fmt(r.kWp, 2)} kWp</div></td><td>{r.n} × {r.name || '—'}<div className="mute">{fmt(r.kWac, 2)} kWac</div></td>
+    <td className="n">{r.nb} × {fmt(r.kWh / r.nb, 2)}<div className="mute">{fmt(r.kWh, 1)} / صافي {fmt(r.kWh * win, 1)} kWh</div></td>
+    <td className="n"><b>{fmt(r.cost, 0)}</b>{!isBase && <div className="okc">وفّر {fmt(R.base.cost - r.cost, 0)}</div>}</td>
+    <td className="n">{pct(r.Y.solFrac)}</td><td className="n">{Yf(r.Y, 'eMiss')}</td><td className="n">{Yf(r.Y, 'eUnused')}</td><td className="n">{Yf(r.Y, 'eClip')}</td>
+    <td className="n">{pct(r.Y.eDirect / Math.max(1, r.Y.eLoad))}</td><td className="n">{fmt(r.Y.cycles, 0)}</td>
+    <td>{isBase ? '' : <button className="sm" onClick={() => ctl.applyOpt(i)}>{R.applied === i ? '✓ مطبّق' : 'طبّق'}</button>}</td></tr>;
+  return <div className="card"><h2>تحسين التكلفة <small>Optimization — منفصل مع بطاريات</small></h2>
+    <div className="mute">الأداة بتجرب انفيرترات أصغر، وعدد ألواح أقل (لحد 45٪)، وأصغر بنك بطاريات بيحافظ على التغطية لكل تركيبة، وبتقبل الـ Clipping (قص إنتاج الظهر) لأنه هالفائض أصلاً كان رايح هدر لما البطارية بتتعبّى. الشرط: نسبة التغطية الشمسية ما تنزل أكثر من الحد اللي بتحدده، والانفيرتر ما يقل عن أعلى حمل ساعي × 1.05. الأحمال النهارية بتنغذى من الألواح مباشرة قبل البطارية، فكل ما زادت الأحمال النهارية قلت البطاريات اللازمة.</div>
+    <div className="rf-row" style={{ marginTop: 8 }}><label className="rf-f" style={{ maxWidth: 260 }}><span>أقصى نزول بالتغطية الشمسية (نقاط %)</span><input type="number" step="0.5" min="0" value={tol} onChange={e => setTol(e.target.value)} /></label>
+      <button className="b pri" disabled={R && R.busy} onClick={() => ctl.optimize(tol)}>{R && R.busy ? 'جاري التجريب…' : '⚙ احسب أرخص تصميم'}</button></div>
+    {R && R.err && <div className="warn">{R.err}</div>}
+    {R && R.base && <>
+      <div className="info">جرّبنا {R.tried} تركيبة (انفيرتر × عدد × بطاريات). أعلى حمل ساعي {fmt(R.peak, 2)} kW، فأصغر انفيرتر مسموح {fmt(R.minAC, 2)} kW.
+        {R.list.length ? ' أوفر خيار بيوفّر ' + fmt(R.base.cost - R.list[0].cost, 0) + ' JD (' + fmt((1 - R.list[0].cost / R.base.cost) * 100, 0) + '٪ من تكلفة الألواح والانفيرتر والبطاريات) بتغطية ' + pct(R.list[0].Y.solFrac) + ' بدل ' + pct(R.base.Y.solFrac) + '.' : ' ما في خيار أرخص بنفس التغطية، التصميم الحالي هو الأمثل ضمن الحد.'}</div>
+      <div style={{ overflowX: 'auto' }}><table className="opt-t"><thead><tr><th></th><th className="n">الألواح</th><th>الانفيرتر</th><th className="n">البطاريات</th><th className="n">التكلفة JD</th><th className="n">التغطية SolFrac</th><th className="n">نقص E_Miss kWh</th><th className="n">فائض ضايع kWh</th><th className="n">قص دخل PV kWh</th><th className="n">الأحمال من الألواح مباشرة</th><th className="n">دورات/سنة</th><th></th></tr></thead>
+        <tbody>{line(R.base, -1, true)}{R.list.map((r, i) => line(r, i))}</tbody></table></div>
+      <div className="mute">التكلفة = الألواح (مع حصتها من الهيكل والكوابل ≈ 0.06 JD/W) + الانفيرتر + البطاريات، من قاعدة الأسعار إذا في سعر، وإلا تقدير السوق (لوح ≈ 0.115 JD/W، هجين ≈ 150 + 105 JD/kW، بطارية LV ≈ 190 وHV ≈ 250 JD/kWh). الانفيرتر ما بيقبل ألواح أكثر من أقصى دخل PV إله (من الداتا شيت، أو 1.3 × قدرته إذا مش معروف). بعد ما تطبّق خيار، شغّل المحاكاة من جديد.</div>
+      {R.shift && <div className="rf-box" style={{ marginTop: 10 }}><h4>استغلال الإنتاج النهاري للأحمال</h4>
+        <div className="mute">بالتصميم الحالي بيضيع بالمعدل {fmt(R.shift.unusedDay, 1)} kWh باليوم من الإنتاج النهاري. أي حمل مرن (مش حرج) بينقل لساعات الشمس بيشتغل من الألواح مباشرة بدل البطارية، فبتقل البطاريات اللازمة.</div>
+        {R.shift.list.length ? <><table><thead><tr><th>الحمل</th><th className="n">kWh/يوم</th><th>من</th><th>يصير</th></tr></thead><tbody>{R.shift.list.map(x => <tr key={x.i}><td>{x.n}</td><td className="n">{fmt(x.e, 2)}</td><td dir="ltr">{x.from}</td><td dir="ltr"><b>{x.to}</b></td></tr>)}</tbody></table>
+          <button className="b" onClick={() => ctl.applyShift()}>انقل هالأحمال للنهار وأعد التصميم والتحسين</button></> : <div className="mute">ما في أحمال مرنة (غير حرجة، ≤ 7 ساعات، وشغالة برّا 9–16) بتتسع بالفائض. علّم الأحمال الحرجة صح بجدول الأحمال.</div>}
+      </div>}
+    </>}
+  </div>;
 }
 
 /* 5 · losses */
