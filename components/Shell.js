@@ -179,7 +179,7 @@ const STEPS = [['1', 'المشروع والموقع'], ['2', 'الاتجاه'], 
 export function ProjectHeader({ ctl }) {
   const st = ctl.f.status && STATUS[ctl.f.status] ? ctl.f.status : (ctl.kwpNow() ? 'designed' : 'draft'), done = ctl.steps();
   const kv = [['قدرة الألواح', ctl.kwpNow() ? fmt(ctl.kwpNow(), 2) + ' kWp' : '—'], ['الانفيرتر', ctl.num('iP') ? fmt((ctl.num('nInv') || 1) * ctl.num('iP'), 2) + ' kW' : '—'],
-    ['البطاريات', ctl.hasBat() && ctl.num('bN') ? fmt(ctl.num('bN') * ctl.num('bK'), 1) + ' kWh' : '—'], ['الطور', ctl.isOff() ? (ctl.f.iPh === '1ph' ? 'سنغل فيز' : '3 فاز') : (ctl.subPh() === '1ph' ? 'سنغل فيز' : '3 فاز')], ['الموقع', cityName(ctl.f.city)]];
+    ['البطاريات (صافي / اسمي)', ctl.batNet() && ctl.num('bN') ? fmt(ctl.batNet().net, 1) + ' / ' + fmt(ctl.batNet().nom, 1) + ' kWh' : '—'], ['الطور', ctl.isOff() ? (ctl.f.iPh === '1ph' ? 'سنغل فيز' : '3 فاز') : (ctl.subPh() === '1ph' ? 'سنغل فيز' : '3 فاز')], ['الموقع', cityName(ctl.f.city)]];
   return <Card className="fn-shell-chrome noprint overflow-hidden">
     <div className="flex flex-wrap items-start gap-4 p-5 pb-4">
       <div className="min-w-0 flex-1">
