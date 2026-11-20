@@ -73,6 +73,12 @@ export function PLoads({ ctl }) {
       {!off && <div className="card"><h2>آلية الربط والتعرفة</h2>
         <Sel ctl={ctl} id="mech" label="آلية الربط" options={[['netOn', 'صافي القيمة — نفس الموقع'], ['zero', 'التصدير الصفري'], ['sellAll', 'تصدير الكل واستجرار الكل'], ['netOff', 'صافي القيمة — خارج الموقع (≥30 ك.و)']]} />
         <Sel ctl={ctl} id="sector" label="فئة التعرفة" options={TARIFFS} />
+        {!ctl.isOff() && ctl.f.sector && ctl.f.sector.indexOf('dom_') === 0 && <>
+          <Sel ctl={ctl} id="sPh" label="اشتراك البيت (الطور)" options={[['auto', 'تلقائي حسب الاستهلاك (المقترح: ' + (ctl.subPh() === '1ph' ? 'سنغل فيز' : '3 فاز') + ')'], ['1ph', 'سنغل فيز (1 طور، حد 3.68 kW)'], ['3ph', '3 فاز (3 أطوار، حد 11.04 kW)']]} />
+          <div className="info" dangerouslySetInnerHTML={{ __html: ctl.phInfo() }} />
+        </>}
+        <Sel ctl={ctl} id="regime" label="القوانين المطبّقة بالحسابات" options={[['reg58', 'النافذة: نظام 58/2024 + تعرفة الهيئة الحالية'], ['draft26', 'سيناريو: مسودة أيلول 2026 (غير نافذة)']]} />
+        {ctl.f.regime === 'draft26' && <div className="warn">مسودة النظام المعدّل (أيلول 2026) لسا مش نافذة لحد ما تنشر بالجريدة الرسمية. استعملها كسيناريو مقارنة بس: شراء الفائض المنزلي 70 فلس مع تخزين ≥ 50٪ من الإنتاج المتوقع (وبين 50 و70 إذا أقل)، وغير المنزلي 50 فلس مع تخزين أكثر من 50٪، وبدلات شبكة جديدة، وقدرة حتى 100٪ من الاستهلاك مع التخزين.</div>}
         <Fd ctl={ctl} id="bands" type="text" dir="ltr" label="شرائح التعرفة — حد:فلس، … (مثال 300:50, 600:100, inf:200)" />
         <div className="r2"><Fd ctl={ctl} id="bb" label="سعر شراء الفائض (فلس/ك.و.س)" /><Fd ctl={ctl} id="fee" label="بدل خدمات الشبكة (دينار/ك.و/شهر)" step="0.5" /></div>
         <div className="mute">{ctl.out.tarsrc}</div>
@@ -156,6 +162,7 @@ export function PSystem({ ctl }) {
       </div>
     </div>
     <div className="card"><h2>فحص الـ Strings <small>PVsyst sizing conditions</small></h2><Html html={ctl.out.sysChk} /></div>
+    <div className="card diag-card"><h2>شكل النظام <small>Single-line diagram</small></h2><Html html={ctl.out.diagram || ''} /></div>
   </>);
 }
 

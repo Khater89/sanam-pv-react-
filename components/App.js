@@ -30,7 +30,7 @@ export default function App() {
       <Sidebar ctl={ctl} />
       <div id="main">
         <Header ctl={ctl} />
-        <div className="page on" key={p}>
+        <div className="page on" id={'p' + p} key={p}>
           {p === '1' && <PSite ctl={ctl} />}
           {p === '2' && <POrient ctl={ctl} />}
           {p === '5' && <PLoads ctl={ctl} />}
@@ -96,7 +96,7 @@ function Header({ ctl }) {
       <button onClick={() => ctl.downloadJSON()}>⬇ JSON</button>
       <label style={{ margin: 0 }}><span className="hbtn">📂 فتح ملف</span>
         <input type="file" accept=".json" className="hid" onChange={async e => { const f = e.target.files[0]; if (f) ctl.openJSON(await readFile(f)); e.target.value = ''; }} /></label>
-      <button onClick={() => window.print()}>🖨 تقرير PDF</button>
+      <button onClick={() => ctl.printReport()}>🖨 تقرير PDF</button>
     </header>
   );
 }
