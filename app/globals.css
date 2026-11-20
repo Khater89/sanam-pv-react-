@@ -241,3 +241,5 @@ tbody tr:nth-child(even){background:#fbfcfe}tbody tr:hover{background:#fff7e6}
  .kpi::before,.card h2::before,th{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 }
 @media print{.kpis{grid-template-columns:repeat(3,1fr)!important;gap:8px}.kpi{padding:8px 10px}.kpi b{font-size:15px!important}.kpi div{font-size:10.5px}}
+.phase-pill{display:inline-block;padding:8px 14px;border-radius:999px;font-weight:700;font-size:13.5px;background:#eef3ff;color:#1e3a8a;border:1px solid #c7d6fe}
+.phase-pill.ph1{background:#fff7e6;color:#9a3412;border-color:#fcd38a}

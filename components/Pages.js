@@ -74,7 +74,8 @@ export function PLoads({ ctl }) {
         <Sel ctl={ctl} id="mech" label="آلية الربط" options={[['netOn', 'صافي القيمة — نفس الموقع'], ['zero', 'التصدير الصفري'], ['sellAll', 'تصدير الكل واستجرار الكل'], ['netOff', 'صافي القيمة — خارج الموقع (≥30 ك.و)']]} />
         <Sel ctl={ctl} id="sector" label="فئة التعرفة" options={TARIFFS} />
         {!ctl.isOff() && ctl.f.sector && ctl.f.sector.indexOf('dom_') === 0 && <>
-          <Sel ctl={ctl} id="sPh" label="اشتراك البيت (الطور)" options={[['auto', 'تلقائي حسب الاستهلاك (المقترح: ' + (ctl.subPh() === '1ph' ? 'سنغل فيز' : '3 فاز') + ')'], ['1ph', 'سنغل فيز (1 طور، حد 3.68 kW)'], ['3ph', '3 فاز (3 أطوار، حد 11.04 kW)']]} />
+          <label>اشتراك البيت (الطور) — بيتحدد تلقائياً من الاستهلاك</label>
+          <div className={'phase-pill ' + (ctl.subPh() === '1ph' ? 'ph1' : 'ph3')}>{ctl.subPh() === '1ph' ? 'سنغل فيز · حد 3.68 kW · الألواح = الانفيرتر × 1.5' : '3 فاز · حد 11.04 kW · الألواح = الانفيرتر × 1.2'}</div>
           <div className="info" dangerouslySetInnerHTML={{ __html: ctl.phInfo() }} />
         </>}
         <Sel ctl={ctl} id="regime" label="القوانين المطبّقة بالحسابات" options={[['reg58', 'النافذة: نظام 58/2024 + تعرفة الهيئة الحالية'], ['draft26', 'سيناريو: مسودة أيلول 2026 (غير نافذة)']]} />
