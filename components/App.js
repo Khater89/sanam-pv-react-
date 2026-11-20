@@ -2,7 +2,7 @@
 import { useMemo, useSyncExternalStore, useEffect } from 'react';
 import Controller from '@/lib/controller';
 import { useRipple } from './ui';
-import { PSite, POrient, PLoads, PSystem, PLosses, PReport } from './Pages';
+import { PSite, POrient, PLoads, PSystem, PLosses, PReport, FullDesign } from './Pages';
 import DBPage from './DBPage';
 import { TopBar, SideNav, Dashboard, ProjectsList, NewProject, ProjectHeader } from './Shell';
 
@@ -32,6 +32,7 @@ export default function App() {
                 {p === '3' && <PSystem ctl={ctl} />}
                 {p === '4' && <PLosses ctl={ctl} />}
                 {p === '6' && <PReport ctl={ctl} />}
+                {p === '8' && <FullDesign ctl={ctl} />}
                 {p === '7' && <DBPage ctl={ctl} />}
               </div>
             </div>}

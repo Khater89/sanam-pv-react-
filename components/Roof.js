@@ -3,7 +3,8 @@ import { useState, useRef, useEffect } from 'react';
 import * as RF from '@/lib/engine/roof';
 import { fmt } from '@/lib/controller';
 
-const MODES = [['pan', '✋ تحريك'], ['roof', '⬠ رسم السطح'], ['bld', '🏢 مبنى/غرفة'], ['tree', '🌳 شجرة'], ['edge', '📐 حافة الاتجاه'], ['move', '↔ تعديل نقاط']];
+const MODES_AZ = [['pan', '✋ تحريك'], ['roof', '⬠ رسم السطح'], ['edge', '📐 حافة الاتجاه'], ['move', '↔ تعديل نقاط']];
+const MODES_SH = [['pan', '✋ تحريك'], ['bld', '🏢 مبنى/غرفة'], ['tree', '🌳 شجرة'], ['move', '↔ تعديل نقاط']];
 const M_LAT = 110574, mLon = lat => 111320 * Math.cos(lat * Math.PI / 180);
 
 function tiles(lat0, lon0, view, z) { // Esri World Imagery tiles covering the view (world metres)
@@ -16,13 +17,15 @@ function tiles(lat0, lon0, view, z) { // Esri World Imagery tiles covering the v
     x: (lonOf(x) - lon0) * mLon(lat0), y: (latOf(y) - lat0) * M_LAT, w: (lonOf(x + 1) - lonOf(x)) * mLon(lat0), h: (latOf(y) - latOf(y + 1)) * M_LAT });
   return out; }
 
-export default function Roof({ ctl }) {
-  const R0 = ctl.roof() || RF.blankRoof(), [mode, setMode] = useState(R0.pts.length > 2 ? 'pan' : 'roof'), [draft, setDraft] = useState([]), [hover, setHover] = useState(null);
+export default function Roof({ ctl, part }) {
+  const AZ = part !== 'shade', MODES = AZ ? MODES_AZ : MODES_SH;
+  const R0 = ctl.roof() || RF.blankRoof(), [mode, setMode] = useState(AZ && R0.pts.length < 3 ? 'roof' : 'pan'), [draft, setDraft] = useState([]), [hover, setHover] = useState(null);
   const [v, setV] = useState({ cx: 0, cy: 0, s: 12 }), [sel, setSel] = useState(null), [rect, setRect] = useState({ a: 20, b: 12, r: 0 }), [shd, setShd] = useState(null), [busy, setBusy] = useState(false);
   const svg = useRef(null), drag = useRef(null), Wpx = 900, Hpx = 520, R = R0, L = R.lay;
   const lat = ctl.num('lat'), lon = ctl.num('lon'), tilt = ctl.num('tilt');
   const commit = fn => { const n = JSON.parse(JSON.stringify(R)); fn(n); ctl.roofSet(n); setShd(null); };
-  const Y = ctl.roofLayout(R), ST = Y && Y.n ? RF.structure(Y, L) : null;
+  const Y = AZ ? null : ctl.roofLayout(R);
+  useEffect(() => { if (!AZ && Y && Y.n && !shd) calc(); }, [ctl.f.roof, ctl.f.tilt, Y && Y.n]); // eslint-disable-line
   useEffect(() => { if (R.pts.length > 2) { const b = R.pts.reduce((a, p) => [Math.min(a[0], p[0]), Math.min(a[1], p[1]), Math.max(a[2], p[0]), Math.max(a[3], p[1])], [1e9, 1e9, -1e9, -1e9]);
     setV({ cx: (b[0] + b[2]) / 2, cy: (b[1] + b[3]) / 2, s: Math.min(Wpx / (b[2] - b[0] + 8), Hpx / (b[3] - b[1] + 8)) }); } }, []); // eslint-disable-line
 
@@ -63,12 +66,14 @@ export default function Roof({ ctl }) {
   let mods = null; if (Y && Y.n) { const F = Y.F, g = (Y.S - Y.nr * Y.mS) / Math.max(1, Y.nr - 1), cb = Math.cos(Y.b), poly = (u0, u1, v0, v1) => pp([RF.toW(F, u0, v0), RF.toW(F, u1, v0), RF.toW(F, u1, v1), RF.toW(F, u0, v1)]);
     mods = Y.tables.map(t => <g key={t.id}>{t.mods.map(m => { const a = m.j * (Y.mS + (Y.nr > 1 ? g : 0)) * cb; return <polygon key={m.idx} points={poly(m.u0, m.u1, t.vF - a, t.vF - a - Y.mS * cb)} fill="#1e3a8a" fillOpacity=".85" stroke="#93c5fd" strokeWidth=".6" />; })}</g>); }
 
+  if (!AZ && R.pts.length < 3) return <div className="warn">ارسم السطح أول بتبويب "الاتجاه"، وبعدها بتنرسم الألواح هون لحالها وبنحسب الظل.</div>;
+  if (!AZ && !ctl.lastC) return <div className="warn">صمّم النظام أول (تبويب الاستهلاك ثم النظام)، وبعدها الألواح بتنرسم على السطح لحالها.</div>;
   return <div className="roofed">
     <div className="rf-bar">{MODES.map(([k, l]) => <button key={k} className={mode === k ? 'on' : ''} onClick={() => { setMode(k); setDraft([]); }}>{l}</button>)}
       <span className="rf-sp" />
       <label className="rf-ck"><input type="checkbox" checked={!!(R.map && R.map.on)} onChange={e => commit(n => { n.map = { ...(n.map || {}), on: e.target.checked ? 1 : 0 }; })} /> صورة القمر الصناعي</label>
       <button onClick={() => setV(o => ({ ...o, s: o.s * 1.3 }))}>＋</button><button onClick={() => setV(o => ({ ...o, s: o.s / 1.3 }))}>－</button></div>
-    <div className="rf-hint">{mode === 'roof' || mode === 'bld' ? 'اضغط لتضيف نقاط الزوايا، وارجع اضغط على أول نقطة (أو Enter) لتسكّر الشكل. Shift = خطوط مستقيمة 90°. Esc يلغي.' : mode === 'tree' ? 'اضغط مكان الشجرة، وبعدين عدّل نصف القطر والارتفاع من القائمة تحت.' : mode === 'edge' ? 'اضغط على حافة السطح اللي بدك الصفوف تكون موازية إلها، والأداة بتحسب الـ Azimuth لحالها.' : mode === 'move' ? 'اسحب أي نقطة لتعدّلها.' : 'اسحب لتحرك الخريطة، وعجلة الماوس للتكبير.'}
+    <div className="rf-hint">{mode === 'roof' || mode === 'bld' ? (mode === 'bld' ? 'ارسم المبنى أو الغرفة أو العمارة المجاورة: ' : '') + 'اضغط لتضيف نقاط الزوايا، وارجع اضغط على أول نقطة (أو Enter) لتسكّر الشكل. Shift = خطوط مستقيمة 90°. Esc يلغي.' : mode === 'tree' ? 'اضغط مكان الشجرة، وبعدين عدّل نصف القطر والارتفاع من القائمة تحت.' : mode === 'edge' ? 'اضغط على حافة السطح اللي بدك الصفوف تكون موازية إلها، والأداة بتحسب الـ Azimuth لحالها.' : mode === 'move' ? 'اسحب أي نقطة لتعدّلها.' : 'اسحب لتحرك الخريطة، وعجلة الماوس للتكبير.'}
       {!lat && <b className="bad"> · حدد إحداثيات الموقع بتبويب 1 عشان تظهر صورة القمر الصناعي.</b>}</div>
     <svg ref={svg} viewBox={'0 0 ' + Wpx + ' ' + Hpx} className="rf-svg" dir="ltr" onPointerDown={down} onPointerMove={move} onPointerUp={up} onDoubleClick={finish} style={{ cursor: mode === 'pan' ? 'grab' : 'crosshair' }}>
       <rect width={Wpx} height={Hpx} fill="#e2e8f0" />
@@ -89,11 +94,10 @@ export default function Roof({ ctl }) {
       {T.length > 0 && <text x={Wpx - 8} y={Hpx - 8} textAnchor="end" className="rf-att">Imagery © Esri, Maxar, Earthstar Geographics</text>}
     </svg>
 
-    <div className="rf-grid">
-      <div className="rf-box"><h4>السطح والتصوينة</h4>
+    {AZ ? <div className="rf-grid">
+      <div className="rf-box"><h4>السطح</h4>
         <div className="rf-row">{num('طول السطح m', rect.a, x => setRect({ ...rect, a: x }), 0.1)}{num('عرض السطح m', rect.b, x => setRect({ ...rect, b: x }), 0.1)}{num('دوران عن الشمال °', rect.r, x => setRect({ ...rect, r: x }), 1)}</div>
         <button className="sm" onClick={quickRect}>⬛ ارسم سطح مستطيل بهالأبعاد</button>
-        <div className="rf-row">{num('ارتفاع التصوينة m', R.hp, x => commit(n => { n.hp = x; }), 0.05)}{num('بُعد الألواح عن التصوينة m', L.setback, x => set('setback', x), 0.1)}</div>
         <div className="mute">السطح: {fmt(Math.abs(RF.area(R.pts)), 1)} m² · {R.pts.length} زوايا {R.pts.length > 2 && <button className="sm" onClick={() => commit(n => { n.pts = []; })}>مسح السطح</button>}</div>
       </div>
       <div className="rf-box"><h4>الاتجاه (Azimuth)</h4>
@@ -101,6 +105,12 @@ export default function Roof({ ctl }) {
         {L.azMode === 'manual' && num('Azimuth °', L.az, x => set('az', x), 0.5)}
         <div className="rf-big">Az = {fmt(RF.layAz(R), 1)}°</div>
         <div className="mute">نفس تعريف PVsyst: جنوب 0، غرب +، شرق −. بيتحدّث بحقل الاتجاه فوق لحاله. الميل (Tilt) من حقل الميل: {tilt == null ? <b className="bad">ما في ميل، حطه فوق</b> : tilt + '°'}.</div>
+      </div>
+    </div> : <>
+    <div className="rf-grid">
+      <div className="rf-box"><h4>التصوينة</h4>
+        <div className="rf-row">{num('ارتفاع التصوينة m', R.hp, x => commit(n => { n.hp = x; }), 0.05)}{num('بُعد الألواح عن التصوينة m', L.setback, x => set('setback', x), 0.1)}</div>
+        <div className="mute">السطح والاتجاه من تبويب الاتجاه. هون بتضيف العوائق، والألواح بتنرسم لحالها من التصميم.</div>
       </div>
       <div className="rf-box"><h4>العوائق</h4>
         {!R.bld.length && !R.trees.length && <div className="mute">ما في عوائق. استعمل "مبنى/غرفة" لدرج السطح أو بيت الدرج أو العمارات المجاورة، و"شجرة" للأشجار. الارتفاع دايماً فوق مستوى سطحك.</div>}
@@ -117,7 +127,6 @@ export default function Roof({ ctl }) {
           {Y.n < (ctl.lastC ? ctl.lastC.nModules : 0) && L.fill === 'design' ? ' السطح ما بيتسع لكل ألواح التصميم: صغّر البُعد عن التصوينة أو الـ Pitch، أو قلل الميل.' : ''}</div>}
       </div>
     </div>
-
     <div className="rf-box"><h4>الظلال القريبة (طريقة PVsyst)</h4>
       <div className="rf-row"><label className="rf-f"><span>الحساب الكهربائي</span><select value={L.elec} onChange={e => set('elec', e.target.value)}><option value="linear">خطي (Linear)</option><option value="strings">حسب السلاسل (According to strings)</option></select></label>
         {L.elec === 'strings' && num('Fraction for electrical effect %', L.kEl, x => set('kEl', x), 5)}
@@ -128,16 +137,33 @@ export default function Roof({ ctl }) {
         <div className="sldw" dangerouslySetInnerHTML={{ __html: RF.sunPathSVG(lat || 32, shd.T, shd.hor) }} /></>}
     </div>
 
-    {ST && <div className="rf-box"><h4>الهيكل المعدني</h4>
-      <div className="rf-row">{num('أقصى بُعد بين الإطارات m', L.span, x => set('span', x), 0.1)}{num('مكان الأرجل من طرف المدادة (نسبة)', L.legPos, x => set('legPos', x), 0.05)}</div>
+    </>}
+  </div>;
+}
+
+/* last tab: full design — structure + complete system drawings */
+export function FullDesign({ ctl }) {
+  const R = ctl.roof(), Y = R ? ctl.roofLayout(R) : null, L = R ? R.lay : null;
+  if (!R || R.pts.length < 3) return <div className="card"><div className="warn">ارسم السطح بتبويب "الاتجاه" عشان يطلع التصميم الكلي.</div></div>;
+  if (!ctl.lastC || !Y || !Y.n) return <div className="card"><div className="warn">صمّم النظام أول (تبويب الاستهلاك ثم النظام)، وبعدها الهيكل والرسومات بيطلعوا هون لحالهم.</div></div>;
+  const ST = RF.structure(Y, L), set = (k, x) => { const n = JSON.parse(JSON.stringify(R)); n.lay[k] = x; ctl.roofSet(n); };
+  const num = (lbl, val, on, step, w) => <label className="rf-f" style={w ? { width: w } : null}><span>{lbl}</span><input type="number" step={step || 'any'} value={val ?? ''} onChange={e => on(e.target.value === '' ? '' : +e.target.value)} /></label>;
+  const c = ctl.lastC;
+  return <>
+    <div className="card"><h2>ملخص التصميم <small>Full design</small></h2>
+      <div className="kpis">{[['قدرة الألواح', fmt(c.kWp, 2) + ' kWp'], ['الانفيرتر', fmt(c.kWac, 2) + ' kWac'], ['الألواح على السطح', Y.n + ' لوح · ' + Y.tables.length + ' طاولة · ' + Y.rows + ' صف'], ['الاتجاه / الميل', 'Az ' + fmt(Y.az, 1) + '° · ' + fmt(Y.tilt, 1) + '°'], ['المسافة بين الصفوف', fmt(Y.pitch, 2) + ' m · GCR ' + fmt(Y.gcr * 100, 0) + '%'], ['الحديد', fmt(ST.steelM, 0) + ' m · ' + fmt(ST.steelKg, 0) + ' kg']].map(([k, x]) => <div key={k} className="kpi"><div>{k}</div><b>{x}</b></div>)}</div>
+    </div>
+    <div className="card"><h2>الرسمة الكاملة: الألواح والهيكل على السطح</h2>
+      <div className="sldw" dangerouslySetInnerHTML={{ __html: RF.planSVG(R, Y, { structure: true, st: ST }) }} />
+      <div className="mute">البرتقالي = الإطارات (مدادة مائلة + رجلين + دعامة)، والأصفر = المدادات الأفقية اللي بتنقط عليها الألواح (على ربع وثلاث أرباع طول اللوح).</div></div>
+    <div className="card"><h2>الهيكل المعدني <small>Steel structure</small></h2>
+      <div className="rf-row">{num('أقصى بُعد بين الإطارات m', L.span, x => set('span', x), 0.1)}{num('مكان الأرجل من طرف المدادة (نسبة)', L.legPos, x => set('legPos', x), 0.05)}{num('ارتفاع الحافة السفلى m', L.h1, x => set('h1', x), 0.05)}</div>
       <div className="rf-row">{[['pRaf', 'مقطع المدادة المائلة', 'kgRaf'], ['pLeg', 'مقطع الأرجل', 'kgLeg'], ['pRail', 'مقطع المدادات الأفقية', 'kgRail'], ['pBr', 'مقطع الدعامات', 'kgBr']].map(([k, l, kg]) => <span key={k} className="rf-prof">
         <label className="rf-f"><span>{l}</span><input value={L[k]} onChange={e => set(k, e.target.value)} /></label>{num('kg/m', L[kg], x => set(kg, x), 0.05, 70)}</span>)}</div>
-      <div className="sldw" dangerouslySetInnerHTML={{ __html: RF.sectionSVG(Y, ST) }} />
-      <div className="sldw" dangerouslySetInnerHTML={{ __html: RF.elevSVG(Y, ST) }} />
-      <div dangerouslySetInnerHTML={{ __html: ctl.bomTable(ST) }} />
-      <h4 style={{ marginTop: 14 }}>الرسمة الكاملة: الألواح والهيكل على السطح</h4>
-      <div className="sldw" dangerouslySetInnerHTML={{ __html: RF.planSVG(R, Y, { structure: true, st: ST }) }} />
-      <div className="mute">البرتقالي = الإطارات (مدادة مائلة + رجلين + دعامة)، والأصفر = المدادات الأفقية اللي بتنقط عليها الألواح (على ربع وثلاث أرباع طول اللوح). الأبعاد تقديرية للتصميم الأولي، والمقاطع لازم يتحقق منها مهندس إنشائي حسب أحمال الرياح.</div>
-    </div>}
-  </div>;
+      <h4>مقطع جانبي</h4><div className="sldw" dangerouslySetInnerHTML={{ __html: RF.sectionSVG(Y, ST) }} />
+      <h4>واجهة أمامية</h4><div className="sldw" dangerouslySetInnerHTML={{ __html: RF.elevSVG(Y, ST) }} />
+      <h4>جدول الكميات</h4><div dangerouslySetInnerHTML={{ __html: ctl.bomTable(ST) }} />
+      <div className="mute">الأبعاد تقديرية للتصميم الأولي، والمقاطع لازم يتحقق منها مهندس إنشائي حسب أحمال الرياح.</div></div>
+    <div className="card diag-card"><h2>شكل النظام الكهربائي <small>Single-line diagram</small></h2><div dangerouslySetInnerHTML={{ __html: ctl.out.diagram || ctl.diagram(c) }} /></div>
+  </>;
 }

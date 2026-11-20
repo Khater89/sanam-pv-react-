@@ -4,7 +4,8 @@ import { Fd, Sel, Picker, Html, Help, readFile } from './ui';
 import { CITIES, STYPE_INFO, TARIFFS, MON, IAM_ANG, LOSS_SRC, DESIGN_T_SRC, fmt } from '@/lib/controller';
 import { importRows, parseCSV, loadXLSX, TEMPLATE_CSV } from '@/lib/loadsImport';
 import { HELP } from '@/lib/help';
-import Roof from './Roof';
+import Roof, { FullDesign } from './Roof';
+export { FullDesign };
 
 /* 1 · project & site */
 export function PSite({ ctl }) {
@@ -46,11 +47,11 @@ export function POrient({ ctl }) {
         <Html html={ctl.out.optOut} className="mute" />
       </div>
       <div className="card"><h2>Transposition</h2>
-        <table><tbody><tr><td>نموذج النقل</td><td>Perez 1990 — circumsolar separate</td></tr><tr><td>Diffuse</td><td>من PVGIS (Gd(h))، Erbs لما ما يكون في DHI</td></tr><tr><td>Horizon (بعيد)</td><td>PVGIS DEM horizon مضمّن بالإشعاع</td></tr><tr><td>Near shadings</td><td>من رسمة السطح تحت: جدول عامل ظل الشعاع المباشر (Azimuth × ارتفاع) + معامل المنتشر والانعكاس، خطي أو حسب السلاسل — نفس طريقة PVsyst</td></tr></tbody></table>
+        <table><tbody><tr><td>نموذج النقل</td><td>Perez 1990 — circumsolar separate</td></tr><tr><td>Diffuse</td><td>من PVGIS (Gd(h))، Erbs لما ما يكون في DHI</td></tr><tr><td>Horizon (بعيد)</td><td>PVGIS DEM horizon مضمّن بالإشعاع</td></tr><tr><td>Near shadings</td><td>بتبويب الخسائر، بعد تصميم النظام</td></tr></tbody></table>
       </div>
     </div>
-    <div className="card"><h2>رسم السطح والظلال والهيكل <small>Roof / site drawing — للأنظمة على الأسطح</small></h2>
-      <Roof ctl={ctl} />
+    <div className="card"><h2>رسم السطح لتحديد الاتجاه <small>Roof drawing — Azimuth</small></h2>
+      <Roof ctl={ctl} part="az" />
     </div>
   </>);
 }
@@ -189,6 +190,9 @@ export function PSystem({ ctl }) {
 /* 5 · losses */
 export function PLosses({ ctl }) {
   return (<>
+    <div className="card"><h2>الظلال القريبة <small>Near shadings — PVsyst method · بعد تصميم النظام</small></h2>
+      <Roof ctl={ctl} part="shade" />
+    </div>
     <div className="grid">
       <div className="card"><h2>Thermal & soiling</h2>
         <div className="r3"><Fd ctl={ctl} id="Uc" label="Uc W/m²K" step="0.5" /><Fd ctl={ctl} id="Uv" label="Uv W/m²K/(m/s)" step="0.1" /><Fd ctl={ctl} id="abs" label="Absorptance α" step="0.01" /></div>

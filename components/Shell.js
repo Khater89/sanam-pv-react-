@@ -175,7 +175,7 @@ export function NewProject({ ctl }) {
 }
 
 /* ---------- project detail: header + tabs (work-order details style) ---------- */
-const STEPS = [['1', 'المشروع والموقع'], ['2', 'الاتجاه'], ['5', 'الاستهلاك والتعرفة'], ['3', 'النظام والـ Strings'], ['4', 'الخسائر'], ['6', 'المحاكاة والتقرير']];
+const STEPS = [['1', 'المشروع والموقع'], ['2', 'الاتجاه'], ['5', 'الاستهلاك والتعرفة'], ['3', 'النظام والـ Strings'], ['4', 'الخسائر'], ['6', 'المحاكاة والتقرير'], ['8', 'التصميم الكلي']];
 export function ProjectHeader({ ctl }) {
   const st = ctl.f.status && STATUS[ctl.f.status] ? ctl.f.status : (ctl.kwpNow() ? 'designed' : 'draft'), done = ctl.steps();
   const kv = [['قدرة الألواح', ctl.kwpNow() ? fmt(ctl.kwpNow(), 2) + ' kWp' : '—'], ['الانفيرتر', ctl.num('iP') ? fmt((ctl.num('nInv') || 1) * ctl.num('iP'), 2) + ' kW' : '—'],
