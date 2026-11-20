@@ -1,9 +1,10 @@
 'use client';
 import { useState } from 'react';
 import { Fd, Sel, Picker, Html, Help, readFile } from './ui';
-import { CITIES, STYPE_INFO, TARIFFS, MON, IAM_ANG, LOSS_SRC, DESIGN_T_SRC } from '@/lib/controller';
+import { CITIES, STYPE_INFO, TARIFFS, MON, IAM_ANG, LOSS_SRC, DESIGN_T_SRC, fmt } from '@/lib/controller';
 import { importRows, parseCSV, loadXLSX, TEMPLATE_CSV } from '@/lib/loadsImport';
 import { HELP } from '@/lib/help';
+import Roof from './Roof';
 
 /* 1 · project & site */
 export function PSite({ ctl }) {
@@ -36,7 +37,7 @@ export function PSite({ ctl }) {
 
 /* 2 · orientation */
 export function POrient({ ctl }) {
-  return (
+  return (<>
     <div className="grid">
       <div className="card"><h2>الاتجاه <small>Orientation — fixed tilted plane</small></h2>
         <div className="r2"><Fd ctl={ctl} id="tilt" label="ميل اللوح (Plane tilt) °" placeholder="مثلاً 20" /><Fd ctl={ctl} id="az" label="الاتجاه (Azimuth) ° — جنوب = 0، غرب +، شرق −" placeholder="جنوب = 0" /></div>
@@ -45,16 +46,19 @@ export function POrient({ ctl }) {
         <Html html={ctl.out.optOut} className="mute" />
       </div>
       <div className="card"><h2>Transposition</h2>
-        <table><tbody><tr><td>نموذج النقل</td><td>Perez 1990 — circumsolar separate</td></tr><tr><td>Diffuse</td><td>من PVGIS (Gd(h))، Erbs لما ما يكون في DHI</td></tr><tr><td>Horizon / Shadings</td><td>PVGIS DEM horizon مضمّن بالإشعاع — الظلال القريبة مش مدعومة حالياً</td></tr></tbody></table>
+        <table><tbody><tr><td>نموذج النقل</td><td>Perez 1990 — circumsolar separate</td></tr><tr><td>Diffuse</td><td>من PVGIS (Gd(h))، Erbs لما ما يكون في DHI</td></tr><tr><td>Horizon (بعيد)</td><td>PVGIS DEM horizon مضمّن بالإشعاع</td></tr><tr><td>Near shadings</td><td>من رسمة السطح تحت: جدول عامل ظل الشعاع المباشر (Azimuth × ارتفاع) + معامل المنتشر والانعكاس، خطي أو حسب السلاسل — نفس طريقة PVsyst</td></tr></tbody></table>
       </div>
     </div>
-  );
+    <div className="card"><h2>رسم السطح والظلال والهيكل <small>Roof / site drawing — للأنظمة على الأسطح</small></h2>
+      <Roof ctl={ctl} />
+    </div>
+  </>);
 }
 
 /* 3 · consumption & tariff */
 export function PLoads({ ctl }) {
   const [imp, setImp] = useState('');
-  const off = ctl.isOff();
+  const off = ctl.isOff(), T = ctl.loadTotals();
   const onFile = async e => {
     const f = e.target.files[0]; if (!f) return; e.target.value = ''; setImp('<div class="mute">جاري قراءة ' + f.name + '…</div>');
     try {
@@ -93,7 +97,7 @@ export function PLoads({ ctl }) {
           <div className="mute" style={{ marginTop: 6 }}>أدخل الاستهلاك بالـ <b>ك.و.س (kWh)</b> من الفاتورة، مش بالدينار. بتقدر تدخل فاتورة وحدة بس، أو أكثر، أو الـ 12. الأشهر الفاضية بتنحسب بمعدل الفواتير اللي دخلتها. ولصق 12 رقم من الإكسل بأول خانة بيعبّيهم كلهم.</div>
           {ctl.out.billInfo && ctl.billsFilled() > 0 && <div className="info">{ctl.out.billInfo}</div>}
         </div> : <div>
-          <table className="loadtbl"><thead><tr><th>الحمل</th><th>W</th><th>عدد</th><th title="نسبة وقت التشغيل الفعلي خلال الفترة (0–1): مكيف/ثلاجة ≈ 0.5–0.7، إنارة 1">معامل الحمل</th><th>من</th><th>إلى</th><th>حرج</th><th></th></tr></thead>
+          <table className="loadtbl"><thead><tr><th>الحمل</th><th>W</th><th>عدد</th><th title="نسبة وقت التشغيل الفعلي خلال الفترة (0–1): مكيف/ثلاجة ≈ 0.5–0.7، إنارة 1">معامل الحمل</th><th>من</th><th>إلى</th><th>حرج</th><th></th><th title="الطاقة اليومية لهذا الحمل">kWh/يوم</th></tr></thead>
             <tbody>{ctl.loads.map((l, i) => <tr key={i}>
               <td><input value={l.n} onChange={e => ctl.editLoad(i, 'n', e.target.value)} /></td>
               <td><input type="number" style={{ width: 70 }} value={l.W} onChange={e => ctl.editLoad(i, 'W', e.target.value)} /></td>
@@ -102,14 +106,25 @@ export function PLoads({ ctl }) {
               <td><input type="number" min="0" max="24" style={{ width: 50 }} value={l.a} onChange={e => ctl.editLoad(i, 'a', e.target.value)} /></td>
               <td><input type="number" min="0" max="24" style={{ width: 50 }} value={l.b} onChange={e => ctl.editLoad(i, 'b', e.target.value)} /></td>
               <td><input type="checkbox" style={{ width: 'auto' }} checked={!!l.c} onChange={e => ctl.editLoad(i, 'c', e.target.checked)} /></td>
-              <td><button className="sm" onClick={() => ctl.delLoad(i)}>×</button></td></tr>)}</tbody></table>
+              <td><button className="sm" onClick={() => ctl.delLoad(i)}>×</button></td>
+              <td className="n mute" style={{ whiteSpace: 'nowrap' }}>{fmt(T.rowKWh[i] || 0, 2)}</td></tr>)}</tbody>
+            <tfoot><tr className="ltot"><th>المجموع</th><th className="n">{fmt(T.connW, 0)}</th><th className="n">{T.qty}</th><th colSpan="4"></th><th></th><th className="n">{fmt(T.d, 2)}</th></tr></tfoot></table>
           <button className="sm" onClick={() => ctl.addLoad()}>+ حمل</button>{' '}
           <label style={{ display: 'inline-flex', margin: 0 }}><span className="sm" style={{ padding: '3px 9px', border: '1px solid var(--line)', borderRadius: 7, cursor: 'pointer', background: '#fff', color: 'var(--ink)' }}>📥 استيراد ملف أحمال (Excel / CSV)</span>
             <input type="file" accept=".xlsx,.xls,.csv,.txt" className="hid" onChange={onFile} /></label>{' '}
           <button className="sm" onClick={tpl}>⬇ نموذج الملف</button>
           <div className="mute" style={{ marginTop: 4 }}>الملف لازم يكون فيه أعمدة: <b>الحمل، W، العدد، معامل الحمل، من، إلى، حرج</b> (بأي ترتيب، بالعربي أو الإنجليزي). لو بدل "من/إلى" في عمود <b>ساعات</b>، بنعتبر التشغيل من 5 المسا. نزّل النموذج وعبّيه.</div>
           <Html html={imp} />
-          <Html html={ctl.out.loadSum} className="mute" />
+          <div className="ltots">
+            {[['القدرة الموصولة (مجموع W × العدد)', fmt(T.connW / 1000, 2) + ' kW', 'مجموع قدرات كل الأجهزة لو اشتغلت مع بعض. ما بنصمم عليه مباشرة لأنه نادراً ما بيصير، بس بيفيد بحجم القاطع الرئيسي والكوابل ومقارنته مع اشتراك العداد.'],
+              ['أعلى حمل متزامن (الذروة)', [fmt(T.pk, 2) + ' kW', 'الساعة ' + T.pkH + ':00'], 'أعلى مجموع أحمال شغالة بنفس الساعة بعد معامل الحمل. هاد اللي بيحدد قدرة الانفيرتر (لازم يغطيه مع هامش 20–25٪ لتيار الإقلاع).'],
+              ['الاستهلاك اليومي', fmt(T.d, 2) + ' kWh', 'مجموع W × العدد × الساعات × معامل الحمل. هاد اللي بيحدد عدد الألواح: kWp ≈ الاستهلاك اليومي ÷ (الإنتاج النوعي اليومي × كفاءة النظام).'],
+              ['منها بالنهار (7–17)', fmt(T.day, 2) + ' kWh', 'بتنغطى مباشرة من الألواح بدون بطارية. كل ما زادت نسبتها، قلّت البطاريات اللازمة.'],
+              ['منها بالليل (17–7)', fmt(T.night, 2) + ' kWh', 'هاي اللي لازم البطاريات تخزنها: السعة الصافية ≥ استهلاك الليل ÷ كفاءة التفريغ، والاسمية = الصافية ÷ (حد الشحن − أدنى SOC).'],
+              ['الأحمال الحرجة', [fmt(T.dc, 2) + ' kWh/day', fmt(T.critW / 1000, 2) + ' kW موصول · ليل ' + fmt(T.nightC, 2) + ' kWh'], 'الأحمال اللي لازم تضل شغالة وقت انقطاع الكهرباء أو لما تنزل البطارية. بالهجين بتحدد سعة البطارية الاحتياطية، وبالمنفصل هي اللي بتضل لما تنفصل الأحمال غير الحرجة.'],
+              ['شهري / سنوي', fmt(T.d * 30.4, 0) + ' / ' + fmt(T.d * 365, 0) + ' kWh', 'بنقارنه مع فواتير الكهرباء للتأكد إنه جدول الأحمال واقعي، ومنه بتنحسب حدود الهيئة (150 kWh/kW/شهر) والطور (552 kWh/شهر).']].map(([k, v, why]) =>
+              <div key={k} className="lt"><div className="lt-k">{k}</div><div className="lt-v" dir="ltr">{Array.isArray(v) ? v[0] : v}</div>{Array.isArray(v) && <div className="lt-s">{v[1]}</div>}<div className="lt-w">{why}</div></div>)}
+          </div>
         </div>}
         <Sel ctl={ctl} id="shape" label="شكل الحمل الساعي" options={[['auto', 'تلقائي حسب القطاع'], ['domestic', 'منزلي (ذروة مسائية)'], ['commercial', 'تجاري (نهاري)'], ['industrial', 'صناعي (ورديتين)'], ['flat', 'ثابت']]} />
         <button className="b" style={{ width: '100%', marginTop: 10 }} onClick={() => ctl.autoD()}>⚡ تصميم تلقائي: kWp + الانفيرتر + البطاريات</button>
@@ -164,6 +179,10 @@ export function PSystem({ ctl }) {
     </div>
     <div className="card"><h2>فحص الـ Strings <small>PVsyst sizing conditions</small></h2><Html html={ctl.out.sysChk} /></div>
     <div className="card diag-card"><h2>شكل النظام <small>Single-line diagram</small></h2><Html html={ctl.out.diagram || ''} /></div>
+    <div className="card"><h2>إعدادات السعر التقديري</h2>
+      <div className="r2"><Sel ctl={ctl} id="mount" label="نوع التركيب" options={[['roof', 'على السطح (هيكل عادي)'], ['elevated', 'على السطح — هيكل مرتفع'], ['ground', 'أرضي / مزرعة']]} />
+        <Fd ctl={ctl} id="pk" label="معامل السوق (1 = نموذجي، 0.9 = أرخص 10٪)" step="0.05" /></div></div>
+    <Html html={ctl.out.price || ''} />
   </>);
 }
 
