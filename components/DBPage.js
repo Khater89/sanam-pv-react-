@@ -1,7 +1,7 @@
 'use client';
 import { useState, useMemo, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Search, Plus, X, Save, Trash2, ExternalLink, ArrowUpDown, ArrowUp, ArrowDown, CheckCircle2, AlertTriangle, LogIn, Sun, Zap, BatteryCharging, Building2, Tag } from 'lucide-react';
+import { Search, Plus, X, Save, Trash2, ExternalLink, ArrowUpDown, ArrowUp, ArrowDown, CheckCircle2, AlertTriangle, LogIn, Sun, Zap, BatteryCharging, Building2, Tag, Cable } from 'lucide-react';
 import { COLS, TITLES, KIND2T, fmt } from '@/lib/controller';
 import { Button, Card, Badge, Input, NativeSelect, Stat } from './ui-kit';
 import { cn } from '@/lib/cn';
@@ -9,7 +9,8 @@ import { templateCSV, rowsToBodies, readSheet, pdfLines, parseDatasheet, pickCol
 import { Upload, FileText, Download } from 'lucide-react';
 
 const blankFor = tt => { const o = {}; COLS[tt].forEach(c => { o[c[0]] = c[0] === 'quoted_on' ? new Date().toISOString().slice(0, 10) : c[0] === 'unit' ? 'unit' : c[2] === 's' ? c[3][0] : c[2] === 'b' ? false : ''; }); return o; };
-const TAB_ICON = { modules: Sun, inverters: Zap, batteries: BatteryCharging, suppliers: Building2, prices: Tag };
+const TAB_ICON = { modules: Sun, inverters: Zap, batteries: BatteryCharging, cables: Cable, suppliers: Building2, prices: Tag };
+const CK_AR = { dc_pv: 'DC ألواح', ac: 'AC', battery: 'بطارية', earth: 'تأريض' };
 const KIND_AR = { grid: 'مربوط', hybrid: 'هجين', offgrid: 'هجين/منفصل' };
 
 /* columns shown in the big table (key, label, render?, numeric?) — every spec value, not just 3 */
@@ -27,24 +28,26 @@ function columns(t, ctl) {
     ['usable_kwh', 'الصافي kWh', r => r.usable_kwh != null ? fmt(r.usable_kwh, 2) : (r.capacity_kwh && r.dod_pct ? fmt(r.capacity_kwh * r.dod_pct / 100, 2) : '—'), 1], ['capacity_ah', 'Ah', n('capacity_ah', 0), 1],
     ['max_charge_a', 'شحن A', n('max_charge_a', 0), 1], ['max_discharge_a', 'تفريغ A', n('max_discharge_a', 0), 1], ['dod_pct', 'DoD %', n('dod_pct', 0), 1], ['rte_pct', 'RTE %', n('rte_pct', 1), 1], ['cycles', 'دورات', n('cycles', 0), 1],
     ['hv', 'جهد', r => r.hv ? 'عالي HV' : 'منخفض LV'], ['_price', 'أقل سعر JD', price('battery'), 1]];
+  if (t === 'cables') return [['kind', 'النوع', r => CK_AR[r.kind] || r.kind], ['type', 'نوع الكابل'], ['size', 'المقطع', r => L((r.cores > 1 ? r.cores + '×' : '1×') + fmt(r.size_mm2, 1) + ' mm²')], ['voltage', 'الجهد'], ['insulation', 'العزل'], ['ampacity_a', 'التحمّل A', n('ampacity_a', 0), 1],
+    ['price_jod_m', 'JD/m', n('price_jod_m', 2), 1], ['_sup', 'المورد', r => { const sp = ctl.DB.suppliers.filter(x => x.id === r.supplier_id)[0]; return sp ? sp.name.split(' — ')[0] : '—'; }], ['standard', 'المعيار'], ['source', 'المصدر', r => <span className="line-clamp-1 max-w-60 text-slate-500" title={r.source || ''}>{r.source || ''}</span>]];
   if (t === 'suppliers') return [['name', 'المورد'], ['kind', 'النوع'], ['city', 'المدينة'], ['brands', 'الماركات'], ['phone', 'الهاتف'], ['contact', 'المسؤول'], ['website', 'الموقع', r => r.website ? <a href={r.website} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="text-brand-600 hover:underline">فتح</a> : '—']];
   return [['_item', 'البند', r => ctl.itemLabel(r)], ['item_kind', 'النوع'], ['_sup', 'المورد', r => { const sp = ctl.DB.suppliers.filter(x => x.id === r.supplier_id)[0]; return sp ? sp.name : '—'; }],
     ['price_jod', 'السعر JD', n('price_jod', 3), 1], ['unit', 'الوحدة'], ['incl_tax', 'شامل الضريبة', r => r.incl_tax ? '✓' : ''], ['quoted_on', 'التاريخ'], ['notes', 'ملاحظات', r => <span className="line-clamp-1 max-w-72 text-slate-500">{r.notes || ''}</span>]];
 }
-const sortVal = (r, k) => k === 'eff' ? (r.pmax_w && r.length_m ? r.pmax_w / (r.length_m * r.width_m) : null) : k === 'mppt' ? r.vmpp_max : k === 'batt' ? r.batt_v_max : k === 'size' ? r.length_m : r[k];
+const sortVal = (r, k) => k === 'size' && r.size_mm2 != null ? r.size_mm2 * (r.cores || 1) : k === 'eff' ? (r.pmax_w && r.length_m ? r.pmax_w / (r.length_m * r.width_m) : null) : k === 'mppt' ? r.vmpp_max : k === 'batt' ? r.batt_v_max : k === 'size' ? r.length_m : r[k];
 
 export default function DBPage({ ctl }) {
   const [t, setT] = useState('modules'), [edit, setEdit] = useState(null), [open, setOpen] = useState(false), [q, setQ] = useState('');
   const [brand, setBrand] = useState(''), [f1, setF1] = useState(''), [f2, setF2] = useState(''), [ver, setVer] = useState(''), [sort, setSort] = useState(['', 1]);
   const [form, setForm] = useState(() => blankFor('modules')), [msg, setMsg] = useState(''), [lg, setLg] = useState({ e: '', p: '' });
   const [imp, setImp] = useState(null), [pdf, setPdf] = useState(null), [col, setCol] = useState(0), [imsg, setImsg] = useState('');
-  const rows = ctl.DB[t] || [], cols = columns(t, ctl), hasBrand = t !== 'suppliers' && t !== 'prices', hasVer = hasBrand;
+  const rows = ctl.DB[t] || [], cols = columns(t, ctl), hasBrand = t !== 'suppliers' && t !== 'prices' && t !== 'cables', hasVer = t !== 'suppliers' && t !== 'prices';
   const brands = useMemo(() => [...new Set(rows.map(r => r.brand).filter(Boolean))].sort(), [rows]);
   const sw = tt => { setT(tt); setImp(null); setPdf(null); setImsg(''); setEdit(null); setOpen(false); setMsg(''); setForm(blankFor(tt)); setBrand(''); setF1(''); setF2(''); setVer(''); setSort(['', 1]); setQ(''); };
   const pick = r => { const o = {}; COLS[t].forEach(c => { o[c[0]] = r[c[0]] == null ? (c[2] === 'b' ? false : '') : r[c[0]]; }); setForm(o); setEdit(r.id); setOpen(true); setMsg(''); };
   let list = rows.filter(r => (!q || JSON.stringify(r).toLowerCase().includes(q.toLowerCase()) || (t === 'prices' && ctl.itemLabel(r).toLowerCase().includes(q.toLowerCase())))
     && (!brand || r.brand === brand) && (!ver || (ver === 'y' ? r.verified : !r.verified))
-    && (!f1 || (t === 'inverters' ? r.kind === f1 : t === 'batteries' ? String(!!r.hv) === f1 : t === 'suppliers' ? r.city === f1 : t === 'prices' ? r.item_kind === f1 : true))
+    && (!f1 || (t === 'cables' ? r.kind === f1 : t === 'inverters' ? r.kind === f1 : t === 'batteries' ? String(!!r.hv) === f1 : t === 'suppliers' ? r.city === f1 : t === 'prices' ? r.item_kind === f1 : true))
     && (!f2 || (t === 'inverters' ? r.phase === f2 : true)));
   if (sort[0]) list = list.slice().sort((a, b) => { const x = sortVal(a, sort[0]), y = sortVal(b, sort[0]); if (x == null) return 1; if (y == null) return -1; return (typeof x === 'number' ? x - y : String(x).localeCompare(String(y), 'ar')) * sort[1]; });
   const save = () => { const body = {}; COLS[t].forEach(c => { const v = form[c[0]]; body[c[0]] = c[2] === 'b' ? !!v : (c[2] === 'n' || c[2] === 'fk' || c[2] === 'sup') ? (v === '' || v == null ? null : +v) : (v === '' ? null : v); });
@@ -75,10 +78,11 @@ export default function DBPage({ ctl }) {
     </div></Card>;
 
   return <div className="space-y-5">
-    <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+    <div className="grid grid-cols-2 gap-4 lg:grid-cols-6">
       <Stat icon={Sun} tone="amber" label="الألواح" value={(D.modules || []).length} sub={'لحد ' + maxOf('modules', 'pmax_w') + ' W'} />
       <Stat icon={Zap} label="الانفيرترات" value={(D.inverters || []).length} sub={'لحد ' + maxOf('inverters', 'pac_kw') + ' kW'} />
       <Stat icon={BatteryCharging} tone="green" label="البطاريات" value={(D.batteries || []).length} sub={'لحد ' + maxOf('batteries', 'capacity_kwh') + ' kWh'} />
+      <Stat icon={Cable} tone="violet" label="الكوابل" value={(D.cables || []).length} sub="DC · AC · بطارية" />
       <Stat icon={Building2} tone="violet" label="الموردين" value={(D.suppliers || []).length} />
       <Stat icon={Tag} tone="amber" label="الأسعار" value={(D.prices || []).length} />
     </div>
@@ -106,6 +110,7 @@ export default function DBPage({ ctl }) {
         {hasBrand && <NativeSelect className="w-40" value={brand} onChange={e => setBrand(e.target.value)}><option value="">كل الماركات</option>{brands.map(b => <option key={b}>{b}</option>)}</NativeSelect>}
         {t === 'inverters' && <><NativeSelect className="w-36" value={f1} onChange={e => setF1(e.target.value)}><option value="">كل الأنواع</option><option value="grid">مربوط</option><option value="hybrid">هجين</option><option value="offgrid">هجين/منفصل</option></NativeSelect>
           <NativeSelect className="w-28" value={f2} onChange={e => setF2(e.target.value)}><option value="">كل الأطوار</option><option value="1ph">1 فاز</option><option value="3ph">3 فاز</option></NativeSelect></>}
+        {t === 'cables' && <NativeSelect className="w-36" value={f1} onChange={e => setF1(e.target.value)}><option value="">كل الأنواع</option>{Object.entries(CK_AR).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</NativeSelect>}
         {t === 'batteries' && <NativeSelect className="w-36" value={f1} onChange={e => setF1(e.target.value)}><option value="">كل الجهود</option><option value="false">منخفض LV</option><option value="true">عالي HV</option></NativeSelect>}
         {t === 'suppliers' && <NativeSelect className="w-36" value={f1} onChange={e => setF1(e.target.value)}><option value="">كل المدن</option>{[...new Set(rows.map(r => r.city).filter(Boolean))].map(c => <option key={c}>{c}</option>)}</NativeSelect>}
         {t === 'prices' && <NativeSelect className="w-36" value={f1} onChange={e => setF1(e.target.value)}><option value="">كل البنود</option>{['module', 'inverter', 'battery', 'other'].map(c => <option key={c}>{c}</option>)}</NativeSelect>}

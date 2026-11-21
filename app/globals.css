@@ -288,3 +288,7 @@ body{background:#f4f6f9}
 .opt-t td,.opt-t th{white-space:nowrap}.opt-t .opt-base{background:#f1f5f9}.opt-t .opt-best{background:#ecfdf5}
 .rf-imgrow{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:8px}.sm-file{cursor:pointer;display:inline-flex;align-items:center;gap:4px}
 .hid{display:none}
+.rf-chips{gap:6px}.rf-chip{display:inline-flex;align-items:center;gap:6px;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:999px;padding:2px 4px 2px 10px;font-size:12px}
+.rf-chip button{border:0;background:#fee2e2;color:#b91c1c;border-radius:999px;width:20px;height:20px;cursor:pointer;font-weight:800}
+.pcmps{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:10px}.pcmp{border:1px solid #e2e8f0;border-radius:10px;padding:8px;background:#fff}.pcmp table{margin-top:4px}
+tr.pk td{background:#ecfdf5;font-weight:700}
