@@ -1,10 +1,11 @@
 'use client';
 import { useState, useRef, useEffect } from 'react';
 import * as RF from '@/lib/engine/roof';
+import { detectRoof } from '@/lib/engine/vision';
 import { fmt } from '@/lib/controller';
 
-const MODES_AZ = [['pan', '✋ تحريك'], ['roof', '⬠ رسم السطح'], ['edge', '📐 حافة الاتجاه'], ['move', '↔ تعديل نقاط']];
-const MODES_SH = [['pan', '✋ تحريك'], ['bld', '🏢 مبنى/غرفة'], ['tree', '🌳 شجرة'], ['move', '↔ تعديل نقاط']];
+const MODES_AZ = [['pan', '✋ تحريك'], ['wand', '🪄 كشف السطح من الصورة'], ['roof', '⬠ رسم السطح'], ['edge', '📐 حافة الاتجاه'], ['scale', '📏 مقياس الصورة'], ['move', '↔ تعديل نقاط']];
+const MODES_SH = [['pan', '✋ تحريك'], ['bld', '🏢 مبنى/غرفة'], ['tree', '🌳 شجرة'], ['inv', '🔌 مكان الانفيرتر'], ['move', '↔ تعديل نقاط']];
 const M_LAT = 110574, mLon = lat => 111320 * Math.cos(lat * Math.PI / 180);
 
 function tiles(lat0, lon0, view, z) { // Esri World Imagery tiles covering the view (world metres)
@@ -17,11 +18,20 @@ function tiles(lat0, lon0, view, z) { // Esri World Imagery tiles covering the v
     x: (lonOf(x) - lon0) * mLon(lat0), y: (latOf(y) - lat0) * M_LAT, w: (lonOf(x + 1) - lonOf(x)) * mLon(lat0), h: (latOf(y) - latOf(y + 1)) * M_LAT });
   return out; }
 
+
+/* image placement: centre at world (0,0), I = { w, h, mpp, rot (image "up" azimuth, ° clockwise from North) } */
+const imgToW = (I, px, py) => { const r = (I.rot || 0) * Math.PI / 180, dx = (px - I.w / 2) * I.mpp, dy = -(py - I.h / 2) * I.mpp; return [dx * Math.cos(r) + dy * Math.sin(r), -dx * Math.sin(r) + dy * Math.cos(r)]; };
+const wToImg = (I, x, y) => { const r = (I.rot || 0) * Math.PI / 180, dx = x * Math.cos(r) - y * Math.sin(r), dy = x * Math.sin(r) + y * Math.cos(r); return [dx / I.mpp + I.w / 2, -dy / I.mpp + I.h / 2]; };
+const loadImg = (src, cors) => new Promise((res, rej) => { const im = new Image(); if (cors) im.crossOrigin = 'anonymous'; im.onload = () => res(im); im.onerror = rej; im.src = src; });
+function downscale(file, max) { return new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => loadImg(fr.result).then(im => { const k = Math.min(1, max / Math.max(im.width, im.height)), c = document.createElement('canvas');
+  c.width = Math.round(im.width * k); c.height = Math.round(im.height * k); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); res({ src: c.toDataURL('image/jpeg', 0.82), w: c.width, h: c.height }); }).catch(rej); fr.onerror = rej; fr.readAsDataURL(file); }); }
+
 export default function Roof({ ctl, part }) {
   const AZ = part !== 'shade', MODES = AZ ? MODES_AZ : MODES_SH;
   const R0 = ctl.roof() || RF.blankRoof(), [mode, setMode] = useState(AZ && R0.pts.length < 3 ? 'roof' : 'pan'), [draft, setDraft] = useState([]), [hover, setHover] = useState(null);
   const [v, setV] = useState({ cx: 0, cy: 0, s: 12 }), [sel, setSel] = useState(null), [rect, setRect] = useState({ a: 20, b: 12, r: 0 }), [shd, setShd] = useState(null), [busy, setBusy] = useState(false);
   const svg = useRef(null), drag = useRef(null), Wpx = 900, Hpx = 520, R = R0, L = R.lay;
+  const I = ctl.f.roofImg && R.img ? R.img : null, [sc, setSc] = useState([]), [scD, setScD] = useState(''), [tol, setTol] = useState(32), [vmsg, setVmsg] = useState('');
   const lat = ctl.num('lat'), lon = ctl.num('lon'), tilt = ctl.num('tilt');
   const commit = fn => { const n = JSON.parse(JSON.stringify(R)); fn(n); ctl.roofSet(n); setShd(null); };
   const Y = AZ ? null : ctl.roofLayout(R);
@@ -43,6 +53,9 @@ export default function Roof({ ctl, part }) {
   const up = e => { const d = drag.current; drag.current = null; if (!d || d.moved) return; const p = ortho(toW(e), e);
     if (mode === 'roof' || mode === 'bld') { if (draft.length >= 3 && Math.hypot(p[0] - draft[0][0], p[1] - draft[0][1]) * v.s < 12) return finish(); setDraft(draft.concat([p])); }
     else if (mode === 'tree') commit(n => { n.trees.push({ x: p[0], y: p[1], r: 2, h: 5, tr: 20 }); });
+    else if (mode === 'inv') commit(n => { n.lay.invPos = p; });
+    else if (mode === 'scale') setSc(sc.length >= 2 ? [p] : sc.concat([p]));
+    else if (mode === 'wand') wand(p);
     else if (mode === 'edge' && R.pts.length > 2) { let bi = 0, bd = 1e9; R.pts.forEach((a, i) => { const b = R.pts[(i + 1) % R.pts.length], m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], dd = Math.hypot(m[0] - p[0], m[1] - p[1]); if (dd < bd) { bd = dd; bi = i; } });
       commit(n => { n.lay.edge = bi; n.lay.azMode = 'edge'; }); } };
   const finish = () => { if (draft.length < 3) return; if (mode === 'roof') commit(n => { n.pts = draft; }); else commit(n => { n.bld.push({ pts: draft, h: 3, name: 'مبنى ' + (n.bld.length + 1) }); }); setDraft([]); setMode('pan'); };
@@ -55,6 +68,30 @@ export default function Roof({ ctl, part }) {
   const quickRect = () => { const a = +rect.a / 2, b = +rect.b / 2, r = (+rect.r || 0) * Math.PI / 180, c = Math.cos(r), s = Math.sin(r);
     commit(n => { n.pts = [[-a, -b], [a, -b], [a, b], [-a, b]].map(([x, y]) => [Math.round((x * c + y * s) * 100) / 100, Math.round((-x * s + y * c) * 100) / 100]); n.lay.edge = 0; });
     setV({ cx: 0, cy: 0, s: Math.min(Wpx / (+rect.a + 8), Hpx / (+rect.b + 8)) }); };
+  /* auto detection: region growing from the click on the uploaded image (or the satellite view) */
+  const applyDetect = (r, toWorld) => { if (r.err) { setVmsg(r.err); return; } const pts = r.outer.map(([x, y]) => toWorld(x, y).map(v => Math.round(v * 100) / 100));
+    commit(n => { n.pts = pts; n.bld = (n.bld || []).filter(b => !b.auto).concat(r.holes.map((hh, i) => ({ pts: hh.rect.map(([x, y]) => toWorld(x, y).map(v => Math.round(v * 100) / 100)), h: 1.5, name: 'جسم ' + (i + 1), auto: 1 })));
+      let bi = 0, ba = 1e9; pts.forEach((_, i) => { const a = Math.abs(RF.edgeAz(pts, i)); if (a < ba) { ba = a; bi = i; } }); n.lay.edge = bi; n.lay.azMode = 'edge'; });
+    setVmsg('✓ لقيت سطح ' + fmt(Math.abs(RF.area(pts)), 1) + ' m² (' + pts.length + ' زوايا' + (r.ortho ? '، زوايا قائمة' : '') + ') و' + r.holes.length + ' جسم عليه (ارتفاعهم 1.5 m، عدّلها بتبويب الخسائر). الاتجاه من الحافة الأقرب للجنوب.'); setMode('pan'); };
+  const wand = async p => { setVmsg('جاري الكشف…');
+    try {
+      if (I) { const im = await loadImg(ctl.f.roofImg), k = Math.min(1, 1000 / Math.max(I.w, I.h)), c = document.createElement('canvas'); c.width = Math.round(I.w * k); c.height = Math.round(I.h * k);
+        const g = c.getContext('2d'); g.drawImage(im, 0, 0, c.width, c.height); const d = g.getImageData(0, 0, c.width, c.height), q = wToImg(I, p[0], p[1]);
+        return applyDetect(detectRoof(d, q[0] * k, q[1] * k, { mpp: I.mpp / k, tol }), (x, y) => imgToW(I, x / k, y / k)); }
+      if (!T.length) return setVmsg('ارفع صورة الموقع أو شغّل صورة القمر الصناعي أول.');
+      const pxm = Math.min(10, 1100 / (view[2] - view[0])), c = document.createElement('canvas'); c.width = Math.round((view[2] - view[0]) * pxm); c.height = Math.round((view[3] - view[1]) * pxm); const g = c.getContext('2d');
+      const ims = await Promise.all(T.map(t => loadImg(t.url, true).then(im => ({ t, im }))));
+      ims.forEach(({ t, im }) => g.drawImage(im, (t.x - view[0]) * pxm, (view[3] - t.y) * pxm, t.w * pxm, t.h * pxm));
+      const d = g.getImageData(0, 0, c.width, c.height);
+      applyDetect(detectRoof(d, (p[0] - view[0]) * pxm, (view[3] - p[1]) * pxm, { mpp: 1 / pxm, tol }), (x, y) => [view[0] + x / pxm, view[3] - y / pxm]);
+    } catch (e) { setVmsg('ما قدرت أقرأ الصورة' + (I ? '' : ' (القمر الصناعي ممكن يمنع القراءة)') + '. نزّل لقطة شاشة للسطح وارفعها من "📷 صورة الموقع".'); } };
+  const onImg = async e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; setVmsg('جاري تجهيز الصورة…');
+    try { const r = await downscale(f, 1600); ctl.set('roofImg', r.src); commit(n => { n.img = { w: r.w, h: r.h, mpp: 0.05, rot: 0 }; n.map = { ...(n.map || {}), on: 0 }; });
+      setV({ cx: 0, cy: 0, s: Math.min(Wpx / (r.w * 0.05 + 4), Hpx / (r.h * 0.05 + 4)) }); setMode('scale'); setVmsg('الصورة انرفعت. هلق حدد المقياس: اضغط نقطتين مسافتهم معروفة (مثلاً طول حافة السطح) واكتب المسافة الحقيقية.'); }
+    catch (er) { setVmsg('ما قدرت أفتح الصورة.'); } };
+  const applyScale = () => { const dReal = +scD; if (sc.length < 2 || !(dReal > 0) || !I) return; const dm = RF.len(sc[0], sc[1]), k = dReal / dm;
+    commit(n => { n.img.mpp = I.mpp * k; n.pts = n.pts.map(p => [p[0] * k, p[1] * k]); n.bld = n.bld.map(b => ({ ...b, pts: b.pts.map(p => [p[0] * k, p[1] * k]) })); n.trees = n.trees.map(t => ({ ...t, x: t.x * k, y: t.y * k, r: t.r * k })); });
+    setV(o => ({ cx: o.cx * k, cy: o.cy * k, s: o.s / k })); setSc([]); setScD(''); setMode('wand'); setVmsg('✓ المقياس: ' + fmt(I.mpp * k * 100, 2) + ' cm للبكسل. هلق اضغط "🪄 كشف السطح" بنص السطح.'); };
   const calc = () => { setBusy(true); setTimeout(() => { const t = ctl.roofShade(); setShd(t ? { T: t, hor: RF.horizon(R, Y) } : null); setBusy(false); }, 30); };
   const horCSV = () => { const h = RF.horizon(R, Y); if (!h) return; const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob(['# Sanam PV horizon — Azimuth from South, West positive (PVsyst convention); Height in degrees\nAzimuth;Height\n' + h.map(p => p[0] + ';' + p[1]).join('\n')], { type: 'text/csv' }));
@@ -73,19 +110,30 @@ export default function Roof({ ctl, part }) {
       <span className="rf-sp" />
       <label className="rf-ck"><input type="checkbox" checked={!!(R.map && R.map.on)} onChange={e => commit(n => { n.map = { ...(n.map || {}), on: e.target.checked ? 1 : 0 }; })} /> صورة القمر الصناعي</label>
       <button onClick={() => setV(o => ({ ...o, s: o.s * 1.3 }))}>＋</button><button onClick={() => setV(o => ({ ...o, s: o.s / 1.3 }))}>－</button></div>
-    <div className="rf-hint">{mode === 'roof' || mode === 'bld' ? (mode === 'bld' ? 'ارسم المبنى أو الغرفة أو العمارة المجاورة: ' : '') + 'اضغط لتضيف نقاط الزوايا، وارجع اضغط على أول نقطة (أو Enter) لتسكّر الشكل. Shift = خطوط مستقيمة 90°. Esc يلغي.' : mode === 'tree' ? 'اضغط مكان الشجرة، وبعدين عدّل نصف القطر والارتفاع من القائمة تحت.' : mode === 'edge' ? 'اضغط على حافة السطح اللي بدك الصفوف تكون موازية إلها، والأداة بتحسب الـ Azimuth لحالها.' : mode === 'move' ? 'اسحب أي نقطة لتعدّلها.' : 'اسحب لتحرك الخريطة، وعجلة الماوس للتكبير.'}
+    <div className="rf-hint">{mode === 'wand' ? 'اضغط بنص السطح بالصورة: الأداة بتلقى حدود السطح والأجسام اللي عليه (خزانات، بيت درج، مكيفات) لحالها. إذا طلع أكبر أو أصغر غيّر التسامح.' : mode === 'scale' ? 'اضغط نقطتين بينهم مسافة معروفة، واكتب المسافة الحقيقية.' : mode === 'roof' || mode === 'bld' ? (mode === 'bld' ? 'ارسم المبنى أو الغرفة أو العمارة المجاورة: ' : '') + 'اضغط لتضيف نقاط الزوايا، وارجع اضغط على أول نقطة (أو Enter) لتسكّر الشكل. Shift = خطوط مستقيمة 90°. Esc يلغي.' : mode === 'inv' ? 'اضغط مكان الانفيرتر (أو نقطة نزول الكوابل من السطح). منه بتنحسب أطوال كوابل الـ DC.' : mode === 'tree' ? 'اضغط مكان الشجرة، وبعدين عدّل نصف القطر والارتفاع من القائمة تحت.' : mode === 'edge' ? 'اضغط على حافة السطح اللي بدك الصفوف تكون موازية إلها، والأداة بتحسب الـ Azimuth لحالها.' : mode === 'move' ? 'اسحب أي نقطة لتعدّلها.' : 'اسحب لتحرك الخريطة، وعجلة الماوس للتكبير.'}
       {!lat && <b className="bad"> · حدد إحداثيات الموقع بتبويب 1 عشان تظهر صورة القمر الصناعي.</b>}</div>
-    <svg ref={svg} viewBox={'0 0 ' + Wpx + ' ' + Hpx} className="rf-svg" dir="ltr" onPointerDown={down} onPointerMove={move} onPointerUp={up} onDoubleClick={finish} style={{ cursor: mode === 'pan' ? 'grab' : 'crosshair' }}>
+    {AZ && <div className="rf-row rf-imgrow">
+      <label className="b sm-file">📷 صورة الموقع<input type="file" accept="image/*" className="hid" onChange={onImg} /></label>
+      {I && <>{num('اتجاه أعلى الصورة عن الشمال °', I.rot || 0, x => commit(n => { n.img.rot = +x || 0; }), 1, 150)}<span className="mute">المقياس {fmt(I.mpp * 100, 2)} cm/px</span>
+        <button className="sm" onClick={() => { ctl.set('roofImg', ''); commit(n => { delete n.img; }); }}>حذف الصورة</button></>}
+      {num('تسامح الألوان للكشف', tol, x => setTol(+x || 32), 2, 120)}
+      {mode === 'scale' && sc.length === 2 && <>{num('المسافة الحقيقية m', scD, x => setScD(x), 0.01, 130)}<button className="b pri" onClick={applyScale}>طبّق المقياس ({fmt(RF.len(sc[0], sc[1]), 2)} m حالياً)</button></>}
+      {vmsg && <span className={vmsg[0] === '✓' ? 'okc' : 'mute'}>{vmsg}</span>}
+    </div>}
+    <svg ref={svg} viewBox={'0 0 ' + Wpx + ' ' + Hpx} className="rf-svg" dir="ltr" onPointerDown={down} onPointerMove={move} onPointerUp={up} onDoubleClick={finish} style={{ cursor: mode === 'pan' ? 'grab' : mode === 'wand' ? 'cell' : 'crosshair' }}>
       <rect width={Wpx} height={Hpx} fill="#e2e8f0" />
       {T.map(t => <image key={t.k} href={t.url} x={SX(t.x)} y={SY(t.y)} width={t.w * v.s + 0.5} height={t.h * v.s + 0.5} preserveAspectRatio="none" />)}
+      {I && (() => { const c = [SX(0), SY(0)], w = I.w * I.mpp * v.s, h = I.h * I.mpp * v.s; return <image href={ctl.f.roofImg} x={c[0] - w / 2} y={c[1] - h / 2} width={w} height={h} transform={'rotate(' + (I.rot || 0) + ' ' + c[0] + ' ' + c[1] + ')'} opacity="0.95" />; })()}
+      {sc.length > 0 && <><polyline points={pp(hover && sc.length === 1 ? sc.concat([hover]) : sc)} fill="none" stroke="#e11d48" strokeWidth="3" />{sc.map((p, i) => <circle key={i} cx={SX(p[0])} cy={SY(p[1])} r="5" fill="#e11d48" />)}</>}
       {(() => { const st = v.s > 20 ? 1 : v.s > 6 ? 5 : 10, L2 = []; for (let x = Math.ceil(view[0] / st) * st; x < view[2]; x += st) L2.push(<line key={'x' + x} x1={SX(x)} x2={SX(x)} y1="0" y2={Hpx} stroke="#fff" strokeOpacity={T.length ? 0.12 : 0.7} />);
         for (let y = Math.ceil(view[1] / st) * st; y < view[3]; y += st) L2.push(<line key={'y' + y} y1={SY(y)} y2={SY(y)} x1="0" x2={Wpx} stroke="#fff" strokeOpacity={T.length ? 0.12 : 0.7} />); return L2; })()}
-      {R.pts.length > 2 && <polygon points={pp(R.pts)} fill="#fff" fillOpacity={T.length ? 0.25 : 0.9} stroke="#0f172a" strokeWidth={+R.hp > 0 ? 4 : 2} />}
+      {R.pts.length > 2 && <polygon points={pp(R.pts)} fill="#fff" fillOpacity={T.length || I ? 0.22 : 0.9} stroke="#0f172a" strokeWidth={+R.hp > 0 ? 4 : 2} />}
       {R.pts.length > 2 && L.azMode === 'edge' && (() => { const i = Math.min(L.edge || 0, R.pts.length - 1), a = R.pts[i], b = R.pts[(i + 1) % R.pts.length]; return <line x1={SX(a[0])} y1={SY(a[1])} x2={SX(b[0])} y2={SY(b[1])} stroke="#16a34a" strokeWidth="6" strokeOpacity=".8" />; })()}
       {R.pts.length > 2 && R.pts.map((a, i) => { const b = R.pts[(i + 1) % R.pts.length]; return <text key={i} x={(SX(a[0]) + SX(b[0])) / 2} y={(SY(a[1]) + SY(b[1])) / 2 - 6} className="rf-dim">{fmt(RF.len(a, b), 2)} m</text>; })}
       {R.bld.map((b, i) => <g key={i} onClick={() => setSel(['bld', i])}><polygon points={pp(b.pts)} fill="#64748b" fillOpacity=".45" stroke="#334155" strokeWidth="1.5" /><text x={SX(b.pts[0][0])} y={SY(b.pts[0][1]) - 4} className="rf-dim">{b.name} · {b.h}m</text></g>)}
       {R.trees.map((t, i) => <g key={i}><circle cx={SX(t.x)} cy={SY(t.y)} r={t.r * v.s} fill="#22c55e" fillOpacity=".45" stroke="#15803d" /><text x={SX(t.x)} y={SY(t.y)} className="rf-dim" textAnchor="middle">{t.h}m</text></g>)}
       {mods}
+      {!AZ && L.invPos && <g transform={'translate(' + SX(L.invPos[0]) + ',' + SY(L.invPos[1]) + ')'}><rect x="-20" y="-12" width="40" height="24" rx="5" fill="#eef2ff" stroke="#4f46e5" strokeWidth="2" /><text y="4" textAnchor="middle" className="rf-dim">INV</text></g>}
       {draft.length > 0 && <polyline points={pp(hover ? draft.concat([hover]) : draft)} fill="none" stroke="#ea580c" strokeWidth="2" strokeDasharray="6 4" />}
       {draft.map((p, i) => <circle key={i} cx={SX(p[0])} cy={SY(p[1])} r={i === 0 ? 7 : 4} fill={i === 0 ? '#ea580c' : '#fff'} stroke="#ea580c" strokeWidth="2" />)}
       {mode === 'move' && R.pts.concat(...R.bld.map(b => b.pts)).map((p, i) => <circle key={'v' + i} cx={SX(p[0])} cy={SY(p[1])} r="5" fill="#fff" stroke="#2563eb" strokeWidth="2" />)}
@@ -118,6 +166,9 @@ export default function Roof({ ctl, part }) {
         {R.trees.map((t, i) => <div key={'t' + i} className="rf-row"><b>🌳 {i + 1}</b>{num('نصف القطر m', t.r, x => commit(n => { n.trees[i].r = x; }), 0.1)}{num('الارتفاع m', t.h, x => commit(n => { n.trees[i].h = x; }), 0.1)}{num('شفافية %', t.tr, x => commit(n => { n.trees[i].tr = x; }), 5)}<button className="sm" onClick={() => commit(n => { n.trees.splice(i, 1); })}>×</button></div>)}
       </div>
       <div className="rf-box"><h4>ترتيب الألواح</h4>
+        <div className="rf-row"><label className="rf-f"><span>الهيكل</span><select value={L.struct || 'auto'} onChange={e => set('struct', e.target.value)}><option value="auto">تلقائي: هيكل واحد للأسطح، صفوف للأرضي</option><option value="single">هيكل واحد لكل الألواح</option><option value="multi">صفوف (هياكل منفصلة)</option></select></label></div>
+        {Y && Y.single && <div className="info">هيكل واحد: كل الألواح ({Y.n}) على طاولة وحدة، {Y.nr} لوح فوق بعض × {Y.tables[0].cols} عمود، طولها {fmt(Y.tables[0].len, 2)} m وعمقها {fmt(Y.D, 2)} m.</div>}
+        {Y && Y.singleFail && <div className="warn">ما زبط هيكل واحد بيتسع كل الألواح لحد 6 ألواح فوق بعض، فوزعتهم على صفوف. صغّر البُعد عن التصوينة أو العوائق، أو قلل الميل.</div>}
         <div className="rf-row"><label className="rf-f"><span>الوضع</span><select value={L.orient} onChange={e => set('orient', e.target.value)}><option value="P">طولي Portrait</option><option value="L">عرضي Landscape</option></select></label>
           {num('ألواح فوق بعض', L.nr, x => set('nr', Math.max(1, Math.round(x || 1))), 1)}{num('ارتفاع الحافة السفلى m', L.h1, x => set('h1', x), 0.05)}</div>
         <div className="rf-row"><label className="rf-f"><span>المسافة بين الصفوف</span><select value={L.pitchMode} onChange={e => set('pitchMode', e.target.value)}><option value="auto">تلقائي: بدون ظل 21 ك1</option><option value="manual">يدوي</option></select></label>
@@ -148,13 +199,14 @@ export function FullDesign({ ctl }) {
   if (!ctl.lastC || !Y || !Y.n) return <div className="card"><div className="warn">صمّم النظام أول (تبويب الاستهلاك ثم النظام)، وبعدها الهيكل والرسومات بيطلعوا هون لحالهم.</div></div>;
   const ST = RF.structure(Y, L), set = (k, x) => { const n = JSON.parse(JSON.stringify(R)); n.lay[k] = x; ctl.roofSet(n); };
   const num = (lbl, val, on, step, w) => <label className="rf-f" style={w ? { width: w } : null}><span>{lbl}</span><input type="number" step={step || 'any'} value={val ?? ''} onChange={e => on(e.target.value === '' ? '' : +e.target.value)} /></label>;
-  const c = ctl.lastC;
+  const c = ctl.lastC, E = ctl.lastE, fd = (id, lbl, step) => <label className="rf-f"><span>{lbl}</span><input type="number" step={step || 'any'} value={ctl.f[id] ?? ''} onChange={e => ctl.input(id, e.target.value)} /></label>;
   return <>
     <div className="card"><h2>ملخص التصميم <small>Full design</small></h2>
       <div className="kpis">{[['قدرة الألواح', fmt(c.kWp, 2) + ' kWp'], ['الانفيرتر', fmt(c.kWac, 2) + ' kWac'], ['الألواح على السطح', Y.n + ' لوح · ' + Y.tables.length + ' طاولة · ' + Y.rows + ' صف'], ['الاتجاه / الميل', 'Az ' + fmt(Y.az, 1) + '° · ' + fmt(Y.tilt, 1) + '°'], ['المسافة بين الصفوف', fmt(Y.pitch, 2) + ' m · GCR ' + fmt(Y.gcr * 100, 0) + '%'], ['الحديد', fmt(ST.steelM, 0) + ' m · ' + fmt(ST.steelKg, 0) + ' kg']].map(([k, x]) => <div key={k} className="kpi"><div>{k}</div><b>{x}</b></div>)}</div>
     </div>
-    <div className="card"><h2>الرسمة الكاملة: الألواح والهيكل على السطح</h2>
-      <div className="sldw" dangerouslySetInnerHTML={{ __html: RF.planSVG(R, Y, { structure: true, st: ST }) }} />
+    <div className="card"><h2>الرسمة الكاملة: الألواح والهيكل والكوابل على السطح</h2>
+      <div className="sldw" dangerouslySetInnerHTML={{ __html: RF.planSVG(R, Y, { structure: true, st: ST, routes: E && E.routes, inv: L.invPos || R.pts[0], cableTxt: E ? 'DC: ' + E.cab[0].spec.split('،')[0] + ' · AC: ' + E.cab.find(x => x.id === 'ac').spec.split('،')[0] : '' }) }} />
+      {E && !E.routes && <div className="mute">أطوال كوابل الـ DC من الحقل اليدوي. لتنحسب من الرسمة: امسح الطول اليدوي، وحط مكان الانفيرتر بتبويب الخسائر (🔌).</div>}
       <div className="mute">البرتقالي = الإطارات (مدادة مائلة + رجلين + دعامة)، والأصفر = المدادات الأفقية اللي بتنقط عليها الألواح (على ربع وثلاث أرباع طول اللوح).</div></div>
     <div className="card"><h2>الهيكل المعدني <small>Steel structure</small></h2>
       <div className="rf-row">{num('أقصى بُعد بين الإطارات m', L.span, x => set('span', x), 0.1)}{num('مكان الأرجل من طرف المدادة (نسبة)', L.legPos, x => set('legPos', x), 0.05)}{num('ارتفاع الحافة السفلى m', L.h1, x => set('h1', x), 0.05)}</div>
@@ -164,6 +216,11 @@ export function FullDesign({ ctl }) {
       <h4>واجهة أمامية</h4><div className="sldw" dangerouslySetInnerHTML={{ __html: RF.elevSVG(Y, ST) }} />
       <h4>جدول الكميات</h4><div dangerouslySetInnerHTML={{ __html: ctl.bomTable(ST) }} />
       <div className="mute">الأبعاد تقديرية للتصميم الأولي، والمقاطع لازم يتحقق منها مهندس إنشائي حسب أحمال الرياح.</div></div>
-    <div className="card diag-card"><h2>شكل النظام الكهربائي <small>Single-line diagram</small></h2><div dangerouslySetInnerHTML={{ __html: ctl.out.diagram || ctl.diagram(c) }} /></div>
+    <div className="card"><h2>الكوابل والحمايات <small>Cables & protections — DC / AC</small></h2>
+      <div className="rf-row">{fd('eLDC', 'طول كابل String يدوي m (فاضي = من الرسمة)', 1)}{fd('eDrop', 'نزول الكابل من السطح m', 0.5)}{fd('eLAC', 'طول كابل AC m', 1)}{ctl.hasBat() && fd('eLBat', 'طول كابل البطارية m', 0.5)}</div>
+      <div className="rf-row">{fd('eDvDC', 'أقصى هبوط جهد DC %', 0.1)}{fd('eDvAC', 'أقصى هبوط جهد AC %', 0.1)}{fd('eFuse', 'أقصى فيوز للوح (Max series fuse) A', 1)}
+        <label className="rf-ck"><input type="checkbox" checked={ctl.f.eAuto !== '0'} onChange={e => ctl.input('eAuto', e.target.checked ? '1' : '0')} /> خسائر الكوابل بالمحاكاة من هالحساب</label></div>
+      {E ? <><div className="sldw" dangerouslySetInnerHTML={{ __html: ctl.sldFull() }} /><div dangerouslySetInnerHTML={{ __html: ctl.elecTables() }} /></> : <div className="warn">صمّم النظام (اللوح والانفيرتر والـ strings) عشان تنحسب الكوابل والحمايات.</div>}
+    </div>
   </>;
 }

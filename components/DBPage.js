@@ -5,6 +5,8 @@ import { Search, Plus, X, Save, Trash2, ExternalLink, ArrowUpDown, ArrowUp, Arro
 import { COLS, TITLES, KIND2T, fmt } from '@/lib/controller';
 import { Button, Card, Badge, Input, NativeSelect, Stat } from './ui-kit';
 import { cn } from '@/lib/cn';
+import { templateCSV, rowsToBodies, readSheet, pdfLines, parseDatasheet, pickColumn } from '@/lib/dsImport';
+import { Upload, FileText, Download } from 'lucide-react';
 
 const blankFor = tt => { const o = {}; COLS[tt].forEach(c => { o[c[0]] = c[0] === 'quoted_on' ? new Date().toISOString().slice(0, 10) : c[0] === 'unit' ? 'unit' : c[2] === 's' ? c[3][0] : c[2] === 'b' ? false : ''; }); return o; };
 const TAB_ICON = { modules: Sun, inverters: Zap, batteries: BatteryCharging, suppliers: Building2, prices: Tag };
@@ -35,9 +37,10 @@ export default function DBPage({ ctl }) {
   const [t, setT] = useState('modules'), [edit, setEdit] = useState(null), [open, setOpen] = useState(false), [q, setQ] = useState('');
   const [brand, setBrand] = useState(''), [f1, setF1] = useState(''), [f2, setF2] = useState(''), [ver, setVer] = useState(''), [sort, setSort] = useState(['', 1]);
   const [form, setForm] = useState(() => blankFor('modules')), [msg, setMsg] = useState(''), [lg, setLg] = useState({ e: '', p: '' });
+  const [imp, setImp] = useState(null), [pdf, setPdf] = useState(null), [col, setCol] = useState(0), [imsg, setImsg] = useState('');
   const rows = ctl.DB[t] || [], cols = columns(t, ctl), hasBrand = t !== 'suppliers' && t !== 'prices', hasVer = hasBrand;
   const brands = useMemo(() => [...new Set(rows.map(r => r.brand).filter(Boolean))].sort(), [rows]);
-  const sw = tt => { setT(tt); setEdit(null); setOpen(false); setMsg(''); setForm(blankFor(tt)); setBrand(''); setF1(''); setF2(''); setVer(''); setSort(['', 1]); setQ(''); };
+  const sw = tt => { setT(tt); setImp(null); setPdf(null); setImsg(''); setEdit(null); setOpen(false); setMsg(''); setForm(blankFor(tt)); setBrand(''); setF1(''); setF2(''); setVer(''); setSort(['', 1]); setQ(''); };
   const pick = r => { const o = {}; COLS[t].forEach(c => { o[c[0]] = r[c[0]] == null ? (c[2] === 'b' ? false : '') : r[c[0]]; }); setForm(o); setEdit(r.id); setOpen(true); setMsg(''); };
   let list = rows.filter(r => (!q || JSON.stringify(r).toLowerCase().includes(q.toLowerCase()) || (t === 'prices' && ctl.itemLabel(r).toLowerCase().includes(q.toLowerCase())))
     && (!brand || r.brand === brand) && (!ver || (ver === 'y' ? r.verified : !r.verified))
@@ -49,6 +52,16 @@ export default function DBPage({ ctl }) {
   const del = () => { if (!edit) return; const r = rows.filter(x => x.id === edit)[0]; if (!confirm('حذف "' + ctl.label(t, r) + '" نهائياً؟')) return;
     ctl.dbDelete(t, edit).then(() => { setEdit(null); setOpen(false); setForm(blankFor(t)); setMsg('انحذف'); }).catch(e => setMsg('خطأ: ' + e.message)); };
   useEffect(() => { if (!open) return; const k = e => { if (e.key === 'Escape') setOpen(false); }; addEventListener('keydown', k); return () => removeEventListener('keydown', k); }, [open]);
+  const dlTpl = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([templateCSV(t)], { type: 'text/csv' })); a.download = 'sanam-' + t + '-template.csv'; a.click(); };
+  const onSheet = async e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; setPdf(null); setImsg('جاري القراءة…');
+    try { const r = rowsToBodies(t, await readSheet(f)); if (r.err) { setImsg(r.err); setImp(null); } else { setImp({ name: f.name, rows: r.rows }); setImsg(r.rows.length + ' صف جاهز للاستيراد من ' + f.name + '. راجعهم وبعدين اضغط استورد.'); } } catch (er) { setImsg('خطأ: ' + er.message); } };
+  const doImport = async () => { if (!imp) return; let ok = 0, bad = 0; for (const b of imp.rows) { try { setImsg('جاري الحفظ ' + (ok + bad + 1) + ' / ' + imp.rows.length + '…'); await ctl.dbSave(t, null, Object.assign({ verified: false }, b)); ok++; } catch (er) { bad++; } }
+    setImp(null); setImsg('✓ انضاف ' + ok + ' صف' + (bad ? '، وفشل ' + bad + ' (غالباً عمود ناقص أو قيمة غلط)' : '') + '.'); };
+  const onPdf = async e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; setImp(null); setImsg('جاري قراءة الداتا شيت…');
+    try { const L = await pdfLines(f), P = parseDatasheet(t, L); if (!P.found) { setImsg('ما قدرت أطلع قيم من هالملف (ممكن يكون صورة مش نص). عبّيها يدوياً.'); return; } setPdf({ P, name: f.name }); setCol(Math.max(0, P.columns - 1));
+      setImsg('لقيت ' + P.found + ' قيمة من ' + f.name + (P.columns > 1 ? '. الداتا شيت فيه ' + P.columns + ' موديلات: اختار العمود.' : '.')); } catch (er) { setImsg('خطأ: ' + er.message); } };
+  const fillFromPdf = () => { if (!pdf) return; const v = pickColumn(pdf.P, col), o = blankFor(t); COLS[t].forEach(c => { if (v[c[0]] != null && v[c[0]] !== '') o[c[0]] = v[c[0]]; });
+    o.verified = false; o.notes = 'مستورد من ' + pdf.name + ' — راجع القيم مع الداتا شيت'; setForm(o); setEdit(null); setOpen(true); setMsg('راجع القيم، كمّل الناقص، واحفظ.'); };
   const cur = edit ? rows.filter(x => x.id === edit)[0] : null;
   const D = ctl.DB, maxOf = (tb, k) => (D[tb] || []).reduce((a, r) => Math.max(a, +r[k] || 0), 0);
 
@@ -73,8 +86,21 @@ export default function DBPage({ ctl }) {
       <div className="flex flex-wrap items-center gap-1 border-b border-slate-200 px-2">
         {Object.keys(TITLES).map(k => { const I = TAB_ICON[k]; return <button key={k} onClick={() => sw(k)} className={cn('-mb-px inline-flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-semibold transition cursor-pointer', t === k ? 'border-brand-600 text-brand-700' : 'border-transparent text-slate-500 hover:text-slate-800')}>
           <I className="size-4" />{TITLES[k].replace(' المحليين', '')}<span className="rounded-full bg-slate-100 px-1.5 text-[11px] text-slate-600">{(D[k] || []).length}</span></button>; })}
-        <div className="ms-auto py-2"><Button size="sm" variant="accent" onClick={() => { setEdit(null); setForm(blankFor(t)); setOpen(true); setMsg(''); }}><Plus />إضافة {TITLES[t].replace(' المحليين', '')}</Button></div>
+        <div className="ms-auto flex flex-wrap gap-2 py-2">
+          <label className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50"><Upload className="size-4" />استيراد CSV / Excel<input type="file" accept=".csv,.xlsx,.xls,.txt" className="hidden" onChange={onSheet} /></label>
+          {hasBrand && <label className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50"><FileText className="size-4" />من الداتا شيت PDF<input type="file" accept="application/pdf" className="hidden" onChange={onPdf} /></label>}
+          <Button size="sm" variant="ghost" onClick={dlTpl}><Download />نموذج</Button>
+          <Button size="sm" variant="accent" onClick={() => { setEdit(null); setForm(blankFor(t)); setOpen(true); setMsg(''); }}><Plus />إضافة {TITLES[t].replace(' المحليين', '')}</Button></div>
       </div>
+      {(imsg || imp || pdf) && <div className="space-y-2 border-b border-amber-200 bg-amber-50/60 p-3 text-sm">
+        <div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-slate-800">{imsg}</span><span className="ms-auto" /><Button size="sm" variant="ghost" onClick={() => { setImp(null); setPdf(null); setImsg(''); }}><X />إغلاق</Button></div>
+        {imp && <><div className="max-h-56 overflow-auto rounded-lg border border-slate-200 bg-white"><table className="fn-table w-full text-xs"><thead><tr>{COLS[t].slice(0, 9).map(c => <th key={c[0]}>{c[1]}</th>)}</tr></thead>
+          <tbody>{imp.rows.slice(0, 30).map((r, i) => <tr key={i}>{COLS[t].slice(0, 9).map(c => <td key={c[0]}>{r[c[0]] == null ? '—' : String(r[c[0]])}</td>)}</tr>)}</tbody></table></div>
+          <Button size="sm" onClick={doImport}><Upload />استورد {imp.rows.length} صف</Button></>}
+        {pdf && <div className="flex flex-wrap items-center gap-2">{pdf.P.columns > 1 && pdf.P.label && <NativeSelect className="w-56" value={col} onChange={e => setCol(+e.target.value)}>{pdf.P.label.map((v, i) => <option key={i} value={i}>العمود {i + 1}: {v}</option>)}</NativeSelect>}
+          <span className="text-xs text-slate-600">{Object.entries(pickColumn(pdf.P, col)).filter(([, v]) => v !== '' && v != null && v !== false).map(([k, v]) => k + '=' + v).join(' · ')}</span>
+          <Button size="sm" onClick={fillFromPdf}><FileText />عبّي النموذج للمراجعة</Button></div>}
+      </div>}
       <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 bg-slate-50/50 p-3">
         <div className="relative min-w-56 flex-1"><Search className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><Input className="ps-9" placeholder="بحث بأي قيمة: موديل، ماركة، رقم…" value={q} onChange={e => setQ(e.target.value)} /></div>
         {hasBrand && <NativeSelect className="w-40" value={brand} onChange={e => setBrand(e.target.value)}><option value="">كل الماركات</option>{brands.map(b => <option key={b}>{b}</option>)}</NativeSelect>}

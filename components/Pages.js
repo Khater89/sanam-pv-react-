@@ -235,6 +235,7 @@ export function PLosses({ ctl }) {
       <div className="card"><h2>Module & wiring</h2>
         <div className="r2"><Fd ctl={ctl} id="lid" label="LID %" step="0.1" /><Fd ctl={ctl} id="qual" label="Module quality % (سالب = ربح)" step="0.05" /></div>
         <div className="r2"><Fd ctl={ctl} id="mis" label="Mismatch % at MPP" step="0.1" /><Fd ctl={ctl} id="ohm" label="DC ohmic % at STC" step="0.05" /></div>
+        <div className="r2"><Fd ctl={ctl} id="acOhm" label="AC ohmic % at STC" step="0.05" /><div className="mute" style={{ alignSelf: 'center' }}>{ctl.f.eAuto !== '0' && ctl.lastE ? 'محسوبة من مقاطع وأطوال الكوابل (تبويب التصميم الكلي)' : 'يدوي'}</div></div>
         <Fd ctl={ctl} id="kIrr" label="PV loss due to irradiance level — معامل k (ln)" step="0.001" />
       </div>
       <div className="card"><h2>IAM <small>Fresnel AR — n 1.526 / 1.290</small></h2>
