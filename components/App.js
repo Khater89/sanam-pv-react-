@@ -1,5 +1,6 @@
 'use client';
 import { useMemo, useSyncExternalStore, useEffect } from 'react';
+import { initI18n } from '@/lib/i18n';
 import Controller from '@/lib/controller';
 import { useRipple } from './ui';
 import { PSite, POrient, PLoads, PSystem, PLosses, PReport, FullDesign } from './Pages';
@@ -9,7 +10,7 @@ import { TopBar, SideNav, Dashboard, ProjectsList, NewProject, ProjectHeader } f
 export default function App() {
   const ctl = useMemo(() => new Controller(), []);
   useSyncExternalStore(ctl.subscribe, ctl.snapshot, ctl.snapshot);
-  useEffect(() => { ctl.start(); }, [ctl]);
+  useEffect(() => { ctl.start(); initI18n(); }, [ctl]);
   useRipple();
   const p = ctl.page, v = ctl.view;
   return (

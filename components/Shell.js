@@ -1,10 +1,11 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { LayoutDashboard, FolderKanban, Plus, Database, Search, LogIn, User, Sun, Zap, BatteryCharging, Gauge, ChevronLeft, Trash2, ExternalLink, Filter, Save, Copy, Download, Upload, Printer, Check, MapPin } from 'lucide-react';
 import { fmt, CITIES, STATUS, statusOf, TYPE_INFO } from '@/lib/controller';
 import { Button, Card, CardHeader, CardTitle, CardContent, Badge, Input, NativeSelect, Table, Stat, Tabs, TabsList, TabsTrigger } from './ui-kit';
 import { readFile } from './ui';
 import { cn } from '@/lib/cn';
+import { getLang, setLang } from '@/lib/i18n';
 
 const go = (ctl, v) => { ctl.view = v; if (v === 'saved' || v === 'home') { if (ctl.sess) ctl.projList(); } ctl.emit(); };
 const cityName = c => (c != null && c !== '' && CITIES[+c]) ? CITIES[+c][0] : '—';
@@ -15,6 +16,8 @@ export function StatusBadge({ s }) { const i = STATUS[s] || STATUS.draft; return
 /* ---------- top bar + side nav (Field Nation-like chrome) ---------- */
 export function TopBar({ ctl }) {
   const [q, setQ] = useState('');
+  const [lg, setLg] = useState('ar');
+  useEffect(() => setLg(getLang()), []);
   return (
     <header className="fn-shell-chrome noprint sticky top-0 z-40 flex h-14 items-center gap-4 bg-navy px-4 text-white shadow-[0_1px_0_rgba(255,255,255,.06)]">
       <button className="flex items-center gap-2.5 cursor-pointer" onClick={() => go(ctl, 'home')}>
@@ -28,6 +31,8 @@ export function TopBar({ ctl }) {
           placeholder="ابحث عن مشروع أو عميل…" className="h-9 w-full rounded-lg border border-white/10 bg-white/10 ps-9 pe-3 text-sm text-white placeholder:text-blue-200/60 focus:bg-white/15 focus:outline-none" />
       </div>
       <div className="ms-auto flex items-center gap-2">
+        <button translate="no" title="Language / اللغة" onClick={() => setLang(getLang() === 'en' ? 'ar' : 'en')}
+          className="h-8 cursor-pointer rounded-lg border border-white/20 bg-white/10 px-2.5 text-xs font-bold text-white hover:bg-white/20">{lg === 'en' ? 'عربي' : 'EN'}</button>
         <Button variant="accent" size="sm" onClick={() => go(ctl, 'new')}><Plus />مشروع جديد</Button>
         <div className="flex items-center gap-2 rounded-lg px-2 py-1 text-sm text-blue-100">
           <div className="grid size-8 place-items-center rounded-full bg-white/15"><User className="size-4" /></div>
@@ -49,8 +54,8 @@ export function SideNav({ ctl }) {
       </nav>
       {cur === 'work' && <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
         <div className="text-[11px] font-bold uppercase tracking-wide text-slate-400">المشروع المفتوح</div>
-        <div className="mt-1 truncate font-bold text-slate-800">{ctl.f.pname || 'مشروع'}</div>
-        <div className="truncate text-xs text-slate-500">{ctl.f.client || '—'}</div>
+        <div className="mt-1 truncate font-bold text-slate-800" translate="no">{ctl.f.pname || 'مشروع'}</div>
+        <div className="truncate text-xs text-slate-500" translate="no">{ctl.f.client || '—'}</div>
       </div>}
       <div className="mt-auto rounded-lg bg-gradient-to-br from-amber-50 to-orange-50 p-3 text-xs leading-relaxed text-amber-900 ring-1 ring-amber-200">
         <div className="mb-1 flex items-center gap-1.5 font-bold"><Sun className="size-4" />PVGIS + ثوابت PVsyst</div>
@@ -77,7 +82,7 @@ function ProjectsTable({ ctl, rows, compact }) {
   return <Table>
     <thead><tr><th>المشروع</th><th>الحالة</th><th>النوع</th><th className="n">kWp</th>{!compact && <th className="n">AC kW</th>}{!compact && <th className="n">بطارية kWh</th>}<th>الموقع</th><th>آخر تعديل</th><th /></tr></thead>
     <tbody>{rows.map(pj => <tr key={pj.id} onClick={() => ctl.projOpen(pj.id)}>
-      <td><div className="font-bold text-slate-900">{pj.name}</div><div className="text-xs text-slate-500">{pj.client || '—'} · #{pj.id}</div></td>
+      <td><div className="font-bold text-slate-900" translate="no">{pj.name}</div><div className="text-xs text-slate-500" translate="no">{pj.client || '—'} · #{pj.id}</div></td>
       <td><StatusBadge s={statusOf(pj)} /></td><td><TypeBadge t={pj.system_type} /></td>
       <td className="n font-semibold text-slate-800">{pj.kwp ? fmt(pj.kwp, 2) : '—'}</td>
       {!compact && <td className="n">{pj.kwac ? fmt(pj.kwac, 2) : '—'}</td>}{!compact && <td className="n">{pj.battery_kwh ? fmt(pj.battery_kwh, 1) : '—'}</td>}
