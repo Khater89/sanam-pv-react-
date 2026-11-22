@@ -33,7 +33,7 @@ The image (${w} x ${h} px) is a top-down view (Google Maps satellite screenshot,
 6) notes: one short sentence in Arabic. found=false if there is no clear building roof.`;
 const P_OBJ = (w, h) => `This image (${w} x ${h} px) is a crop showing ONLY one flat roof seen from above, for a rooftop solar PV design in Jordan. It may be blurry.
 List EVERY obstruction on the roof as an oriented box, coordinates normalised to this crop (0..1, origin top-left): cx, cy = centre; w, l = width and length as a fraction of the crop width (w) and crop height (l) before rotation; angle_deg = rotation clockwise.
-kind must be one of: stair (stair room / roof access, ~3 m), stairTank (stair room with water tanks on top), roomTank (room with tanks on top), tank (single water tank, usually white/black cylinder ~1.2 m), tankStand (group of tanks on a steel stand), heater (solar water heater with tilted collector), ac (AC outdoor unit), room, laundry, dish (satellite dish), wall, vent, elev (elevator room), panels (existing PV panels), other.
+kind must be one of: stair (stair room / roof access, ~3 m), stairTank (stair room with water tanks on top), roomTank (room with tanks on top), tank (single water tank, usually white/black cylinder ~1.2 m), tankStand (group of tanks on a steel stand), heater (solar water heater with tilted collector), ac (AC outdoor unit), room, laundry, dish (satellite dish), wall, vent, elev (elevator room), opening (light well / skylight / courtyard hole), panels (existing PV panels), other.
 name_ar: short Arabic name (e.g. بيت درج، خزان مي، سخان شمسي، مكيف). height_m: estimated height above the roof. confidence 0..1. Group touching tanks of the same group into one tankStand box covering the whole group (one box per group). A light well, courtyard or skylight opening in the roof is kind opening. Ignore the parapet itself, shadows, map pins and labels. tank_px: diameter in pixels of one single tank (measure it carefully, it is the scale reference).
 notes: one short Arabic sentence about anything uncertain.`;
 
@@ -44,11 +44,12 @@ export async function POST(req) {
   const step = b.step === 'objects' ? 'objects' : 'roof';
   if (!b.image || !/^data:image\//.test(b.image) || b.image.length > 6e6) return Response.json({ error: 'الصورة ناقصة أو كبيرة كثير' }, { status: 400 });
   try {
-    const r = await fetch('https://api.openai.com/v1/responses', { method: 'POST', headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: process.env.OPENAI_MODEL || 'gpt-5.5',
-        input: [{ role: 'user', content: [{ type: 'input_text', text: step === 'roof' ? P_ROOF(b.w, b.h, b.mpp) : P_OBJ(b.w, b.h) }, { type: 'input_image', image_url: b.image, detail: 'high' }] }],
-        text: { format: { type: 'json_schema', name: 'roof_' + step, strict: true, schema: SCHEMA[step] } } }) });
-    const j = await r.json();
+    const body = { model: process.env.OPENAI_MODEL || 'gpt-5.5',
+      input: [{ role: 'user', content: [{ type: 'input_text', text: step === 'roof' ? P_ROOF(b.w, b.h, b.mpp) : P_OBJ(b.w, b.h) }, { type: 'input_image', image_url: b.image, detail: 'high' }] }],
+      text: { format: { type: 'json_schema', name: 'roof_' + step, strict: true, schema: SCHEMA[step] } }, reasoning: { effort: process.env.OPENAI_EFFORT || 'low' } };
+    const call = bd => fetch('https://api.openai.com/v1/responses', { method: 'POST', headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' }, body: JSON.stringify(bd) });
+    let r = await call(body), j = await r.json();
+    if (!r.ok && /reasoning/i.test((j.error && j.error.message) || '')) { delete body.reasoning; r = await call(body); j = await r.json(); } // model without reasoning effort
     if (!r.ok) return Response.json({ error: 'OpenAI ' + r.status + ': ' + ((j.error && j.error.message) || '').slice(0, 200) });
     const txt = j.output_text || (j.output || []).flatMap(o => o.content || []).filter(c => c.type === 'output_text' || c.text).map(c => c.text).join('');
     let out; try { out = JSON.parse(txt); } catch (e) { return Response.json({ error: 'رد غير مفهوم من الذكاء الاصطناعي' }); }
