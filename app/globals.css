@@ -300,3 +300,5 @@ html[dir=ltr] select{background-position:right 9px top 55%,right 14px top 55%;pa
 .rf-objs{margin:8px 0;display:grid;gap:8px}.rf-add{flex-wrap:wrap;gap:6px;align-items:center}.rf-add .sm .mute{font-size:11px}
 .rf-sel{border-color:#f59e0b!important;background:#fffbeb}.rf-sel h4{display:flex;justify-content:space-between;align-items:center}.rf-on{background:#fef3c7;border-radius:8px}
 .rf-ana{border-color:#2563eb!important;background:#f8fbff}.rf-ana h4{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}.rf-ana .rf-svg{margin:8px 0}
+.rf-3dbar{border:1px solid #cbd5e1;border-radius:12px;padding:6px 8px;margin:6px 0;background:#f8fafc}.rf-3dbar .on,.rf-cnt .on{background:#1d4ed8;color:#fff;border-color:#1d4ed8}.rf-rot{display:inline-flex;gap:4px;align-items:center}
+.rf-cnt{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0}.rf-cnt-n{font-size:28px;font-weight:800;color:#1d4ed8;min-width:48px;text-align:center}.rf-slide{width:100%}.rf-slide input{width:100%}.rf-pick table input{padding:4px 6px}
