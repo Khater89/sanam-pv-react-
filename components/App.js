@@ -10,7 +10,7 @@ import { TopBar, SideNav, Dashboard, ProjectsList, NewProject, ProjectHeader } f
 export default function App() {
   const ctl = useMemo(() => new Controller(), []);
   useSyncExternalStore(ctl.subscribe, ctl.snapshot, ctl.snapshot);
-  useEffect(() => { ctl.start(); initI18n(); }, [ctl]);
+  useEffect(() => { ctl.start(); initI18n(); if (typeof window !== 'undefined') window.__sanam = ctl; }, [ctl]);
   useRipple();
   const p = ctl.page, v = ctl.view;
   return (
