@@ -48,7 +48,10 @@ export default function Roof({ ctl, part }) {
   const I = ctl.f.roofImg && R.img ? R.img : null, [sc, setSc] = useState([]), [scD, setScD] = useState(''), [tol, setTol] = useState(32), [vmsg, setVmsg] = useState('');
   const lat = ctl.num('lat'), lon = ctl.num('lon'), tilt = ctl.num('tilt');
   const commit = fn => { const n = JSON.parse(JSON.stringify(R)); fn(n); ctl.roofSet(n); setShd(null); };
-  const Y = AZ ? null : ctl.roofLayout(R);
+  const Y = AZ ? null : ctl.roofLayout(R), Yv = Y || (ctl.lastC && R.pts.length > 2 ? ctl.roofLayout(R) : null);
+  /* near-shading loss of this drawing (updates when the roof, objects, tilt or structure height change) */
+  const [sloss, setSloss] = useState(null), lkey = Yv && Yv.n ? [ctl.f.roof, ctl.f.tilt, ctl.f.ns, Yv.n].join('|') : '';
+  useEffect(() => { if (!lkey) { setSloss(null); return; } setSloss('…'); const t = setTimeout(() => { ctl.shadeLoss().then(x => setSloss(x || null)).catch(e => setSloss({ err: e.message })); }, 600); return () => clearTimeout(t); }, [lkey]); // eslint-disable-line
   useEffect(() => { if (!AZ && Y && Y.n && !shd) calc(); }, [ctl.f.roof, ctl.f.tilt, Y && Y.n]); // eslint-disable-line
   useEffect(() => { if (R.pts.length > 2) { const b = R.pts.reduce((a, p) => [Math.min(a[0], p[0]), Math.min(a[1], p[1]), Math.max(a[2], p[0]), Math.max(a[3], p[1])], [1e9, 1e9, -1e9, -1e9]);
     setV({ cx: (b[0] + b[2]) / 2, cy: (b[1] + b[3]) / 2, s: Math.min(Wpx / (b[2] - b[0] + 8), Hpx / (b[3] - b[1] + 8)) }); } }, []); // eslint-disable-line
@@ -246,6 +249,22 @@ export default function Roof({ ctl, part }) {
       {ana.notes && <div className="mute">🤖 {ana.notes}</div>}
       <div className="mute">الارتفاعات من نوع كل جسم (تقديرية). بعد الاعتماد بتقدر تعدّل أي جسم: مكانه وأبعاده وارتفاعه واسمه، وتشوفه بالـ 3D، وتنزّله لـ SketchUp كملف Ruby.</div>
     </div>; })();
+  /* modules + steel structure: tilt, front/rear heights, rows, orientation → layout, 3D, shading and losses all follow */
+  const stPanel = Yv && Yv.n ? (() => { const STv = RF.structure(Yv, L), hr = Yv.h1 + Yv.S * Math.sin(Yv.b), T0 = Yv.tables[0];
+    return <div className="rf-box rf-st"><h4>🏗 الألواح والهيكل الحديدي <small className="mute">أبعاد حقيقية من الداتا شيت</small></h4>
+      <div className="rf-row">
+        <label className="rf-f" style={{ width: 110 }}><span>الميل °</span><input type="number" step="0.5" value={ctl.f.tilt ?? ''} onChange={e => ctl.input('tilt', e.target.value)} /></label>
+        {num('ارتفاع الحافة الأمامية m', L.h1, x => set('h1', x === '' ? '' : Math.max(0, +x)), 0.05, 160)}
+        {num('ارتفاع الحافة الخلفية m', Math.round(hr * 100) / 100, x => set('h1', Math.max(0, Math.round(((+x || 0) - Yv.S * Math.sin(Yv.b)) * 100) / 100)), 0.05, 160)}
+        {num('ألواح فوق بعض', L.nr, x => set('nr', Math.max(1, Math.round(x || 1))), 1, 110)}
+        <label className="rf-f"><span>الوضع</span><select value={L.orient} onChange={e => set('orient', e.target.value)}><option value="P">طولي Portrait</option><option value="L">عرضي Landscape</option></select></label>
+        {num('البعد عن التصوينة m', L.setback, x => set('setback', x), 0.1, 130)}</div>
+      <div className="kpis">{[['اللوح', fmt(Math.max(Yv.mU, Yv.mS), 3) + ' × ' + fmt(Math.min(Yv.mU, Yv.mS), 3) + ' m'], ['الألواح', Yv.n + ' · ' + Yv.tables.length + ' طاولة'], ['طول الطاولة × عمقها', fmt(T0.len, 2) + ' × ' + fmt(Yv.D, 2) + ' m'],
+        ['الأرجل أمامية / خلفية', fmt(STv.hf, 2) + ' / ' + fmt(STv.hr, 2) + ' m'], ['الإطارات', STv.tables.reduce((a, t) => a + t.nf, 0) + ' كل ≤ ' + fmt(+L.span || 2, 1) + ' m'], ['الحديد', fmt(STv.steelKg, 0) + ' kg']].map(([a, x]) => <div key={a} className="kpi"><div>{a}</div><b>{x}</b></div>)}</div>
+      <div className={sloss && sloss.near > 0.03 ? 'warn' : 'info'}>{!sloss ? 'خسارة الظل بتنحسب بعد تحميل بيانات الطقس.' : sloss === '…' ? '☀ جاري حساب خسارة الظل…' : sloss.err ? 'ما قدرت أحسب خسارة الظل: ' + sloss.err :
+        <>☀ خسارة الظل القريب على هالرسمة: <b>{fmt(sloss.near * 100, 2)}٪</b> من الإشعاع{sloss.elec > 0.0005 ? <> + <b>{fmt(sloss.elec * 100, 2)}٪</b> أثر كهربائي</> : null}، يعني الإنتاج بيقل <b>{fmt(sloss.tot * 100, 2)}٪</b>. معامل ظل المنتشر {fmt(sloss.fd * 100, 1)}٪. هاد الرقم نفسه بيدخل المحاكاة ومخطط الخسائر (Near Shadings).</>}</div>
+      <div className="mute">غيّر الميل أو ارتفاع الهيكل أو حرّك الأجسام: الرسمة والـ 3D والظل والخسائر بيتحدّثوا لحالهم. رفع الهيكل فوق التصوينة بيقلل ظلها، بس بيزيد طول الأرجل ووزن الحديد.</div>
+    </div>; })() : null;
   /* quick add + the selected object's panel */
   const SB = sel && sel[0] === 'bld' ? R.bld[sel[1]] : null, ST = sel && sel[0] === 'tree' ? R.trees[sel[1]] : null;
   const editB = fn => commit(n => { const b = n.bld[sel[1]]; fn(b, n); if (b.rect) b.pts = rectPts(b.rect); fixH(n); });
@@ -325,7 +344,7 @@ export default function Roof({ ctl, part }) {
     {AZ && I && <div className="rf-steps">{[['1', 'المقياس', !!R.cal || I.mpp !== 0.05, 'scale'], ['2', 'حدود السطح بالخطوط', R.pts.length > 2, 'roof'], ['3', 'الأجسام والمباني المجاورة', R.bld.length + R.trees.length > 0, 'bld'], ['4', 'الارتفاعات (تحت)', R.bld.length + R.trees.length > 0 && (!R.bld.concat(R.trees).some(o => o.ref === 'ground') || +R.hb > 0), null]].map(([k, l, ok, m]) =>
       <button key={k} className={'rf-step' + (ok ? ' ok' : '')} onClick={() => m && (setMode(m), setDraft([]))}><b>{ok ? '✓' : k}</b> {l}</button>)}</div>}
     {sunBar}
-    {view3 ? (R.pts.length > 2 ? <Roof3D R={R} img={ctl.f.roofImg} Y={Y || (ctl.lastC ? ctl.roofLayout(R) : null)} sun={sun} sel={sel} onSelect={(k, i) => setSel(k ? [k, i] : null)} onMove={moveObj} /> : <div className="warn">ارسم حدود السطح أول (⬠) عشان يطلع العرض الثلاثي الأبعاد.</div>) :
+    {view3 ? (R.pts.length > 2 ? <Roof3D R={R} img={ctl.f.roofImg} Y={Yv} sun={sun} sel={sel} onSelect={(k, i) => setSel(k ? [k, i] : null)} onMove={moveObj} /> : <div className="warn">ارسم حدود السطح أول (⬠) عشان يطلع العرض الثلاثي الأبعاد.</div>) :
     <svg ref={svg} viewBox={'0 0 ' + Wpx + ' ' + Hpx} className="rf-svg" dir="ltr" onPointerDown={down} onPointerMove={move} onPointerUp={up} onDoubleClick={finish} style={{ cursor: mode === 'pan' ? 'grab' : mode === 'wand' ? 'cell' : 'crosshair' }}>
       <rect width={Wpx} height={Hpx} fill="#e2e8f0" />
       {T.map(t => <image key={t.k} href={t.url} x={SX(t.x)} y={SY(t.y)} width={t.w * v.s + 0.5} height={t.h * v.s + 0.5} preserveAspectRatio="none" />)}
@@ -355,6 +374,7 @@ export default function Roof({ ctl, part }) {
       {T.length > 0 && <text x={Wpx / 2} y={Hpx - 6} textAnchor="middle" className="rf-att">Imagery © Esri, Maxar, Earthstar Geographics</text>}
     </svg>}
     {ana && anaView}
+    {stPanel}
     {objPanel}
 
     {AZ && (R.bld.length > 0 || R.trees.length > 0) && <div className="rf-row rf-chips">{R.bld.map((b, i) => <span key={'b' + i} className="rf-chip">🏢 {b.name} · {b.h} m <button onClick={() => commit(n => { n.bld.splice(i, 1); })}>×</button></span>)}

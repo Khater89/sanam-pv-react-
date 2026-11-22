@@ -50,7 +50,7 @@ export default function Roof3D({ R, img, Y, sun, sel, onSelect, onMove, height =
   useEffect(() => { if (st.current) st.current.cb = { onSelect, onMove }; });
 
   // (re)build the model when the roof, image or layout change
-  const key = JSON.stringify([R.pts, R.bld, R.trees, R.hp, R.hb, R.img, Y ? Y.n + ':' + Y.pitch + ':' + Y.az : 0, sel, !!img]);
+  const key = JSON.stringify([R.pts, R.bld, R.trees, R.hp, R.hb, R.img, R.lay, Y ? [Y.n, Y.pitch, Y.az, Y.tilt, Y.h1, Y.mS, Y.mU, Y.nr] : 0, sel, !!img]);
   useEffect(() => { const S = st.current; if (!S) return; const { root } = S;
     root.children.slice().forEach(c => { root.remove(c); c.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) [].concat(o.material).forEach(m => { if (m.map) m.map.dispose(); m.dispose(); }); }); });
     S.objs = []; if (!R.pts || R.pts.length < 3) return;
@@ -86,12 +86,30 @@ export default function Roof3D({ R, img, Y, sun, sel, onSelect, onMove, height =
       const cr = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), new THREE.MeshStandardMaterial({ color: on ? '#f59e0b' : '#3f8f4a', transparent: true, opacity: 0.95 })); cr.scale.set(r, Math.max(0.5, top * 0.33), r); cr.position.set(+t.x, base + top * 0.67, -t.y); cr.castShadow = true; g.add(cr);
       const lb = label('شجرة · ' + (Math.round((+t.h || 0) * 10) / 10) + ' m'); lb.position.set(+t.x, base + top + 0.8, -t.y); g.add(lb);
       g.userData = { kind: 'tree', idx: i }; root.add(g); S.objs.push(g); });
-    // module tables (when the system is designed)
-    if (Y && Y.n) { const F = Y.F, cb = Math.cos(Y.b), sb = Math.sin(Y.b), gp = (Y.S - Y.nr * Y.mS) / Math.max(1, Y.nr - 1), pts = [], mat = new THREE.MeshStandardMaterial({ color: '#1e3a8a', side: THREE.DoubleSide, metalness: 0.3, roughness: 0.4 });
-      Y.tables.forEach(t => t.mods.forEach(m => { const a = m.j * (Y.mS + (Y.nr > 1 ? gp : 0)), z0 = Y.h1 + a * sb, z1 = z0 + Y.mS * sb, vF = t.vF - a * cb, vB = vF - Y.mS * cb;
-        const q = [[m.u0, vF, z0], [m.u1, vF, z0], [m.u1, vB, z1], [m.u0, vB, z1]].map(([u, v, z]) => { const w = RF.toW(F, u, v); return [w[0], z, -w[1]]; });
-        pts.push(...q[0], ...q[1], ...q[2], ...q[0], ...q[2], ...q[3]); }));
-      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3)); g.computeVertexNormals(); const mm = new THREE.Mesh(g, mat); mm.castShadow = mm.receiveShadow = true; root.add(mm); }
+    // module tables with real module dimensions + the steel structure (frames: rafter, front/rear/middle legs, diagonal brace; horizontal rails)
+    if (Y && Y.n) { const F = Y.F, b = Y.b, cb = Math.cos(b), sb = Math.sin(b), gp = (Y.S - Y.nr * Y.mS) / Math.max(1, Y.nr - 1), ST = RF.structure(Y, R.lay || {});
+      const W3 = (u, v, z) => { const w = RF.toW(F, u, v); return new THREE.Vector3(w[0], z, -w[1]); }, P3 = (t, u, s, dz) => W3(u, t.vF - s * cb, Y.h1 + s * sb + (dz || 0));
+      const steel = new THREE.MeshStandardMaterial({ color: '#9aa4b2', metalness: 0.6, roughness: 0.45 }), railM = new THREE.MeshStandardMaterial({ color: '#cbd5e1', metalness: 0.6, roughness: 0.35 });
+      const bar = (p1, p2, th, mat) => { const L = p1.distanceTo(p2); if (L < 0.01) return; const m = new THREE.Mesh(new THREE.BoxGeometry(th, th, L), mat); m.position.copy(p1).add(p2).multiplyScalar(0.5); m.lookAt(p2); m.castShadow = m.receiveShadow = true; root.add(m); };
+      // module texture: cells grid (portrait 6 × 12 half-cut look)
+      const cv = document.createElement('canvas'), cx2 = cv.getContext('2d'), port = Y.mS >= Y.mU; cv.width = port ? 192 : 384; cv.height = port ? 384 : 192; cx2.fillStyle = '#0b1f4d'; cx2.fillRect(0, 0, cv.width, cv.height);
+      const nc = port ? 6 : 12, nr2 = port ? 12 : 6, cw = (cv.width - 8) / nc, ch = (cv.height - 8) / nr2; cx2.fillStyle = '#1d3b8b';
+      for (let i = 0; i < nc; i++) for (let j = 0; j < nr2; j++) cx2.fillRect(4 + i * cw + 1, 4 + j * ch + 1, cw - 2, ch - 2); cx2.strokeStyle = '#cbd5e1'; cx2.lineWidth = 6; cx2.strokeRect(3, 3, cv.width - 6, cv.height - 6);
+      const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; const modM = new THREE.MeshStandardMaterial({ map: tex, metalness: 0.25, roughness: 0.35 }), sideM = new THREE.MeshStandardMaterial({ color: '#cbd5e1' });
+      Y.tables.forEach((t, ti) => { const T = ST && ST.tables[ti];
+        t.mods.forEach(m => { const a = m.j * (Y.mS + (Y.nr > 1 ? gp : 0)), c0 = P3(t, (m.u0 + m.u1) / 2, a + Y.mS / 2, 0.03), g = new THREE.BoxGeometry(m.u1 - m.u0, 0.035, Y.mS);
+          const mesh = new THREE.Mesh(g, [sideM, sideM, modM, sideM, sideM, sideM]); mesh.position.copy(c0);
+          const up = P3(t, (m.u0 + m.u1) / 2, a + Y.mS, 0.03).sub(P3(t, (m.u0 + m.u1) / 2, a, 0.03)).normalize(), ax = W3(1, 0, 0).sub(W3(0, 0, 0)).normalize(), nrm = new THREE.Vector3().crossVectors(up, ax).normalize();
+          if (nrm.y < 0) nrm.negate(); const zAx = up.clone().negate(), xAx = new THREE.Vector3().crossVectors(nrm, zAx).normalize(); mesh.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(xAx, nrm, zAx));
+          mesh.castShadow = mesh.receiveShadow = true; root.add(mesh); });
+        if (!T) return; const e = ST.e, S = Y.S;
+        for (let k = 0; k < T.nf; k++) { const u = t.u0 + ST.ov + k * T.sp; if (u > t.u1 + 0.01) break;
+          const r0 = P3(t, u, -0.03, -0.05), r1 = P3(t, u, S + 0.02, -0.05); bar(r0, r1, 0.06, steel); // rafter
+          const fT = P3(t, u, e, -0.05), fB = W3(u, t.vF - e * cb, 0), rT = P3(t, u, S - e, -0.05), rB = W3(u, t.vF - (S - e) * cb, 0);
+          bar(fB, fT, 0.06, steel); bar(rB, rT, 0.06, steel); bar(fB, rT, 0.04, steel);
+          if (ST.midLeg) { const mT = P3(t, u, S / 2, -0.05), mB = W3(u, t.vF - S / 2 * cb, 0); bar(mB, mT, 0.06, steel); }
+          [fB, rB].forEach(p => { const bp = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.02, 0.2), steel); bp.position.copy(p); root.add(bp); }); }
+        const rows = Math.max(1, Y.nr); for (let j = 0; j < rows; j++) [0.25, 0.75].forEach(fr => { const sd = j * (Y.mS + (Y.nr > 1 ? gp : 0)) + fr * Y.mS; bar(P3(t, t.u0 - 0.05, sd, -0.015), P3(t, t.u1 + 0.05, sd, -0.015), 0.04, railM); }); }); }
     // camera target and shadow box
     S.ctr.target.set(cx, 0, -cy); const sc = S.sunL.shadow.camera, ext = span * 1.6; sc.left = -ext; sc.right = ext; sc.top = ext; sc.bottom = -ext; sc.near = 0.5; sc.far = span * 12; sc.updateProjectionMatrix();
     S.centre = [cx, cy, span]; if (!S.framed) { S.cam.position.set(cx - span * 0.9, span * 1.1, -cy + span * 1.3); S.framed = true; }
