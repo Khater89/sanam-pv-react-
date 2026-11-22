@@ -1,7 +1,8 @@
 'use client';
 import { useState, useRef, useEffect } from 'react';
 import * as RF from '@/lib/engine/roof';
-import { detectRoof } from '@/lib/engine/vision';
+import { detectRoof, orthogonalize } from '@/lib/engine/vision';
+import { toRuby } from '@/lib/engine/sketchup';
 import { OBJ_PRESETS, presetOf, guessKind, rectPts } from '@/lib/engine/objects';
 import dynamic from 'next/dynamic';
 const Roof3D = dynamic(() => import('./Roof3D'), { ssr: false, loading: () => <div className="rf-3d mute" style={{ height: 520, display: 'grid', placeItems: 'center' }}>جاري تحميل العرض الثلاثي الأبعاد…</div> });
@@ -120,7 +121,7 @@ export default function Roof({ ctl, part }) {
   const [gz, setGz] = useState(''), [gdpr, setGdpr] = useState(typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1), [glink, setGlink] = useState('');
   const gLat = () => lat || 32;
   const applyGoogle = (z, latX) => { if (!I || !(z > 0)) return; const mpp = 156543.03392 * Math.cos((latX || gLat()) * Math.PI / 180) / Math.pow(2, z) / (+gdpr || 1) * (I.k0 || 1), k = mpp / I.mpp;
-    commit(n => { n.img.mpp = mpp; n.pts = n.pts.map(q => [q[0] * k, q[1] * k]); n.bld = n.bld.map(b => ({ ...b, pts: b.pts.map(q => [q[0] * k, q[1] * k]) })); n.trees = n.trees.map(tr => ({ ...tr, x: tr.x * k, y: tr.y * k, r: tr.r * k })); });
+    commit(n => { n.img.mpp = mpp; n.img.calOK = 1; n.pts = n.pts.map(q => [q[0] * k, q[1] * k]); n.bld = n.bld.map(b => ({ ...b, pts: b.pts.map(q => [q[0] * k, q[1] * k]) })); n.trees = n.trees.map(tr => ({ ...tr, x: tr.x * k, y: tr.y * k, r: tr.r * k })); });
     setV(o => ({ cx: o.cx * k, cy: o.cy * k, s: o.s / k })); setVmsg('✓ مقياس Google Maps: zoom ' + z + ' → ' + fmt(mpp * 100, 2) + ' cm/px. تأكد بقياس حافة معروفة إذا بدك دقة أعلى.'); };
   const parseLink = () => { const m = glink.match(/@(-?\d+\.\d+),(-?\d+\.\d+),(\d+(?:\.\d+)?)(z|m)/); if (!m) return setVmsg('ما لقيت @lat,lng,zoom بالرابط. انسخ الرابط من شريط العنوان بعد ما تفتح الموقع على Google Maps.');
     const la = +m[1], lo = +m[2]; if (!lat) { ctl.input('lat', la); ctl.input('lon', lo); }
@@ -128,6 +129,38 @@ export default function Roof({ ctl, part }) {
     const z = +m[3]; setGz(z.toFixed(2)); applyGoogle(z, la); };
   /* AI scan (OpenAI vision via the server route) */
   const [aiBusy, setAiBusy] = useState(false);
+  /* 🔬 analysis option: (1) the whole image → building roof outline, parapet, scale estimate, neighbours; (2) a crop of that roof → every object
+     with its type; then the roof is redrawn clean with its dimensions and area, objects as editable boxes with heights from their type */
+  const [ana, setAna] = useState(null), [anaBusy, setAnaBusy] = useState('');
+  const analyze = async () => { if (!I) return setVmsg('ارفع صورة الموقع أول.');
+    try { const im = await loadImg(ctl.f.roofImg), cal = !!(R.cal || I.calOK), toCanvas = (x0, y0, bw, bh, max) => { const k = Math.min(1, max / Math.max(bw, bh)), c = document.createElement('canvas'); c.width = Math.round(bw * k); c.height = Math.round(bh * k);
+        const g = c.getContext('2d'); g.imageSmoothingQuality = 'high'; g.drawImage(im, x0, y0, bw, bh, 0, 0, c.width, c.height); return { c, k }; };
+      const post = body => fetch('/api/roof-analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(x => x.json());
+      setAnaBusy('1/2 بحدد المبنى وسطحه…'); const A = toCanvas(0, 0, I.w, I.h, 1280);
+      const r1 = await post({ step: 'roof', image: A.c.toDataURL('image/jpeg', 0.9), w: A.c.width, h: A.c.height, mpp: cal ? I.mpp / A.k : 0 }); if (r1.error) throw new Error(r1.error);
+      if (!r1.found || r1.roof.length < 3) throw new Error('ما قدرت أميّز سطح مبنى واضح بالصورة.' + (r1.notes ? ' ' + r1.notes : ''));
+      const mpp = cal ? I.mpp : r1.mpp > 0 ? r1.mpp * A.k : I.mpp, Ic = { ...I, mpp }, W = (x, y) => imgToW(Ic, x, y).map(v => Math.round(v * 100) / 100);
+      let rp = r1.roof.map(([x, y]) => [x * I.w, y * I.h]); rp = orthogonalize(rp, 12).P; const roofW = rp.map(([x, y]) => W(x, y));
+      // crop of the roof only, enlarged, for the objects
+      const bx = rp.reduce((a, q) => [Math.min(a[0], q[0]), Math.min(a[1], q[1]), Math.max(a[2], q[0]), Math.max(a[3], q[1])], [1e9, 1e9, -1e9, -1e9]), pad = 0.06 * Math.max(bx[2] - bx[0], bx[3] - bx[1]);
+      const x0 = Math.max(0, bx[0] - pad), y0 = Math.max(0, bx[1] - pad), bw = Math.min(I.w, bx[2] + pad) - x0, bh = Math.min(I.h, bx[3] + pad) - y0;
+      setAnaBusy('2/2 بحلل الأجسام على السطح…'); const B = toCanvas(x0, y0, bw, bh, 1024); const up = Math.max(1, 1024 / Math.max(bw, bh)); if (up > 1) { const c2 = document.createElement('canvas'); c2.width = Math.round(bw * up); c2.height = Math.round(bh * up); const g2 = c2.getContext('2d'); g2.imageSmoothingQuality = 'high'; g2.drawImage(im, x0, y0, bw, bh, 0, 0, c2.width, c2.height); B.c = c2; }
+      const r2 = await post({ step: 'objects', image: B.c.toDataURL('image/jpeg', 0.92), w: B.c.width, h: B.c.height }); if (r2.error) throw new Error(r2.error);
+      const hb = +R.hb > 0 ? +R.hb : r1.floors > 0 ? Math.round(r1.floors * 3.2 * 10) / 10 : '';
+      const objs = r2.objects.map(o => { const c = W(x0 + o.cx * bw, y0 + o.cy * bh), pr = presetOf(o.kind), rect = { cx: c[0], cy: c[1], w: Math.max(0.3, Math.round(o.w * bw * mpp * 100) / 100), l: Math.max(0.3, Math.round(o.l * bh * mpp * 100) / 100), rot: Math.round(((o.angle || 0) + (I.rot || 0)) * 10) / 10 };
+        return { name: o.name || (pr ? pr.name : 'جسم'), kind: pr ? o.kind : '', rect, pts: rectPts(rect), h: pr ? pr.h : (o.h || 1.5), ref: 'roof', hg: '', hAuto: true, conf: o.conf, ai: 1 }; })
+        .filter(o => RF.inside(roofW, o.rect.cx, o.rect.cy));
+      const nbs = (r1.neighbours || []).map((nb, i) => { const pts = orthogonalize(nb.poly.map(([x, y]) => [x * I.w, y * I.h]), 12).P.map(([x, y]) => W(x, y)), hg = nb.floors > 0 ? Math.round(nb.floors * 3.2 * 10) / 10 : (+hb || 0) + 3;
+        return { name: 'عمارة مجاورة ' + (i + 1) + (nb.floors ? ' (' + nb.floors + ' طوابق)' : ''), kind: 'neighbour', pts, ref: 'ground', hg, h: Math.max(0, Math.round((hg - (+hb || 0)) * 100) / 100), hAuto: true, ai: 1 }; });
+      setAna({ roof: roofW, objs, nbs, hp: r1.parapet_m, hb, mpp, cal, mppAI: r1.mpp * A.k, basis: r1.mpp_basis, floors: r1.floors, notes: [r1.notes, r2.notes].filter(Boolean).join(' · ') }); setAnaBusy('');
+    } catch (e) { setAnaBusy(''); setVmsg('🔬 ' + e.message); } };
+  const applyAna = () => { const a = ana; if (!a) return; commit(n => { if (n.img) { n.img.mpp = a.mpp; if (!a.cal) n.img.calOK = 0; } n.pts = a.roof; n.bld = a.objs.concat(a.nbs).map(({ conf, ...o }) => o); n.trees = n.trees || [];
+      if (a.hp > 0) n.hp = a.hp; if (a.hb !== '' && !(+n.hb > 0)) n.hb = a.hb; let bi = 0, ba = 1e9; a.roof.forEach((_, i) => { const z = Math.abs(RF.edgeAz(a.roof, i)); if (z < ba) { ba = z; bi = i; } }); n.lay.edge = bi; n.lay.azMode = 'edge'; delete n.cal; fixH(n); });
+    const b = a.roof.reduce((q, p) => [Math.min(q[0], p[0]), Math.min(q[1], p[1]), Math.max(q[2], p[0]), Math.max(q[3], p[1])], [1e9, 1e9, -1e9, -1e9]);
+    setV({ cx: (b[0] + b[2]) / 2, cy: (b[1] + b[3]) / 2, s: Math.min(Wpx / (b[2] - b[0] + 8), Hpx / (b[3] - b[1] + 8)) }); setAna(null); setMode('pan');
+    setVmsg('✓ انرسم السطح من جديد مع ' + a.objs.length + ' جسم و' + a.nbs.length + ' عمارة مجاورة. راجع الأجسام بالـ 3D واسحب أي جسم لمكانه أو عدّل ارتفاعه.' + (a.cal ? '' : ' المقياس تقديري من الذكاء الاصطناعي: تأكد منه بـ "📏 مقياس الرسم" على ضلع معروف.')); };
+  const dlRuby = () => { const Yr = Y || (ctl.lastC ? ctl.roofLayout(R) : null), a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([toRuby(R, Yr && Yr.n ? Yr : null)], { type: 'text/plain' }));
+    a.download = 'sanam-roof-' + ((ctl.f.pname || 'project').replace(/[^\w\u0600-\u06FF-]+/g, '_')) + '.rb'; a.click(); };
   const aiScan = async () => { if (!I) return setVmsg('ارفع صورة الموقع أول.'); setAiBusy(true); setVmsg('🤖 جاري المسح بالذكاء الاصطناعي…');
     try { const im = await loadImg(ctl.f.roofImg), k = Math.min(1, 1024 / Math.max(I.w, I.h)), c = document.createElement('canvas'); c.width = Math.round(I.w * k); c.height = Math.round(I.h * k); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
       const r = await fetch('/api/ai-roof', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image: c.toDataURL('image/jpeg', 0.85), w: c.width, h: c.height, mpp: I.mpp / k }) }).then(x => x.json());
@@ -193,6 +226,26 @@ export default function Roof({ ctl, part }) {
     <label className="rf-f" style={{ minWidth: 220 }}><span>الساعة (توقيت شمسي) {fmt(sh.hr, 1)}</span><input type="range" min="6" max="18" step="0.5" value={sh.hr} onChange={e => setSh({ ...sh, hr: +e.target.value })} /></label>
     <span className="mute">{sun.el > 1 ? 'ارتفاع الشمس ' + fmt(sun.el, 1) + '° · اتجاهها ' + fmt(sun.az, 0) + '° · ظل جسم ارتفاعه 1 m = ' + fmt(kS, 2) + ' m' : 'الشمس تحت الأفق بهالساعة'}</span>
     {I && R.pts.length > 2 && <label className="rf-ck"><input type="checkbox" checked={full} onChange={e => setFull(e.target.checked)} /> أظهر الصورة كاملة</label>}</div>;
+  /* analysis result: clean redraw of the roof with dimensions, area and objects, before applying it */
+  const anaView = ana && (() => { const all = ana.roof.concat(...ana.objs.map(o => o.pts), ...ana.nbs.map(o => o.pts)), b = all.reduce((q, p) => [Math.min(q[0], p[0]), Math.min(q[1], p[1]), Math.max(q[2], p[0]), Math.max(q[3], p[1])], [1e9, 1e9, -1e9, -1e9]);
+    const Wv = 900, Hv = 460, k = Math.min((Wv - 80) / (b[2] - b[0] || 1), (Hv - 80) / (b[3] - b[1] || 1)), X = x => 40 + (x - b[0]) * k, Yv = y => Hv - 40 - (y - b[1]) * k, ps = P => P.map(p => X(p[0]) + ',' + Yv(p[1])).join(' ');
+    const area = Math.abs(RF.area(ana.roof)), PR = ana.roof;
+    return <div className="rf-box rf-ana"><h4>🔬 نتيجة التحليل — راجعها قبل ما تعتمدها <span><button className="b pri" onClick={applyAna}>✓ اعتمد الرسمة</button> <button className="sm" onClick={() => setAna(null)}>إلغاء</button></span></h4>
+      <div className="kpis">{[['مساحة السطح', fmt(area, 1) + ' m²'], ['الأضلاع', PR.length], ['الأجسام على السطح', ana.objs.length], ['المباني المجاورة', ana.nbs.length], ['التصوينة', fmt(ana.hp, 1) + ' m'], ['المقياس', fmt(ana.mpp * 100, 2) + ' cm/px' + (ana.cal ? ' (معاير)' : ' (تقدير)')]].map(([a, x]) => <div key={a} className="kpi"><div>{a}</div><b>{x}</b></div>)}</div>
+      {!ana.cal && <div className="warn">المقياس تقدير من الذكاء الاصطناعي ({ana.basis || '—'}). بعد ما تعتمد، صحّحه بـ "📏 مقياس الرسم" على ضلع طوله معروف، وكل الأبعاد بتتعدّل مع بعض.</div>}
+      <svg viewBox={'0 0 ' + Wv + ' ' + Hv} className="rf-svg" dir="ltr" style={{ background: '#fff' }}>
+        {ana.nbs.map((o, i) => <g key={'n' + i}><polygon points={ps(o.pts)} fill="#cbd5e1" stroke="#64748b" strokeDasharray="5 4" /><text x={X(cen(o.pts)[0])} y={Yv(cen(o.pts)[1])} textAnchor="middle" className="rf-dim">{o.name} · {fmt(o.hg, 1)} m</text></g>)}
+        <polygon points={ps(PR)} fill="#f8fafc" stroke="#0f172a" strokeWidth={ana.hp > 0 ? 5 : 2.5} strokeLinejoin="round" />
+        {PR.map((a, i) => { const c = PR[(i + 1) % PR.length]; return <text key={i} x={(X(a[0]) + X(c[0])) / 2} y={(Yv(a[1]) + Yv(c[1])) / 2 - 7} textAnchor="middle" className="rf-dim">{fmt(RF.len(a, c), 2)} m</text>; })}
+        {ana.objs.map((o, i) => { const pr = presetOf(o.kind); return <g key={i}><polygon points={ps(o.pts)} fill={(pr && pr.color) || '#9ca3af'} fillOpacity=".85" stroke="#334155" /><text x={X(o.rect.cx)} y={Yv(o.rect.cy) + 4} textAnchor="middle" className="rf-dim rf-dim2">{o.name} · {o.h} m</text></g>; })}
+        <text x={Wv / 2} y={Hv - 12} textAnchor="middle" className="rf-dim">مساحة السطح {fmt(area, 1)} m²</text>
+      </svg>
+      <table className="fn-table"><thead><tr><th>#</th><th>الجسم</th><th>النوع</th><th className="n">الأبعاد m</th><th className="n">الارتفاع m</th><th className="n">الثقة</th></tr></thead>
+        <tbody>{ana.objs.map((o, i) => <tr key={i}><td>{i + 1}</td><td>{o.name}</td><td>{(presetOf(o.kind) || {}).name || '—'}</td><td className="n">{fmt(o.rect.w, 2)} × {fmt(o.rect.l, 2)}</td><td className="n">{o.h}</td><td className="n">{o.conf != null ? fmt(o.conf * 100, 0) + '%' : '—'}</td></tr>)}
+          {ana.nbs.map((o, i) => <tr key={'n' + i}><td>—</td><td>{o.name}</td><td>عمارة مجاورة</td><td className="n">{fmt(Math.abs(RF.area(o.pts)), 0)} m²</td><td className="n">{fmt(o.hg, 1)} من الأرض</td><td className="n">—</td></tr>)}</tbody></table>
+      {ana.notes && <div className="mute">🤖 {ana.notes}</div>}
+      <div className="mute">الارتفاعات من نوع كل جسم (تقديرية). بعد الاعتماد بتقدر تعدّل أي جسم: مكانه وأبعاده وارتفاعه واسمه، وتشوفه بالـ 3D، وتنزّله لـ SketchUp كملف Ruby.</div>
+    </div>; })();
   /* quick add + the selected object's panel */
   const SB = sel && sel[0] === 'bld' ? R.bld[sel[1]] : null, ST = sel && sel[0] === 'tree' ? R.trees[sel[1]] : null;
   const editB = fn => commit(n => { const b = n.bld[sel[1]]; fn(b, n); if (b.rect) b.pts = rectPts(b.rect); fixH(n); });
@@ -241,6 +294,7 @@ export default function Roof({ ctl, part }) {
     <div className="rf-bar">{MODES.map(([k, l]) => <button key={k} className={mode === k ? 'on' : ''} onClick={() => { setMode(k); setDraft([]); }}>{l}</button>)}
       <span className="rf-sp" />
       <label className="rf-ck"><input type="checkbox" checked={!!(R.map && R.map.on)} onChange={e => commit(n => { n.map = { ...(n.map || {}), on: e.target.checked ? 1 : 0 }; })} /> صورة القمر الصناعي</label>
+      {R.pts.length > 2 && <button onClick={dlRuby} title="SketchUp: Window → Ruby Console → load">⬇ SketchUp (Ruby)</button>}
       <button className={view3 ? 'on' : ''} onClick={() => setView3(!view3)}>{view3 ? '🗺 رجوع للرسمة 2D' : '🧊 عرض ثلاثي الأبعاد 3D'}</button>
       <button onClick={() => setV(o => ({ ...o, s: o.s * 1.3 }))}>＋</button><button onClick={() => setV(o => ({ ...o, s: o.s / 1.3 }))}>－</button></div>
     <div className="rf-hint">{mode === 'del' ? 'اضغط على نقطة زاوية لحذفها، أو جوّا جسم أو شجرة لحذفها.' : mode === 'move' ? 'اسحب أي نقطة لتحرّكها، أو اضغط على ضلع لتضيف نقطة جديدة عليه.' : mode === 'drop' ? 'اضغط مكان نزول الكوابل من السطح (الدرج أو الشفت). منه بنحسب الطريق لغرفة الكهرباء.' : mode === 'wand' ? 'اضغط بنص السطح بالصورة: الأداة بتلقى حدود السطح والأجسام اللي عليه (خزانات، بيت درج، مكيفات) لحالها. إذا طلع أكبر أو أصغر غيّر التسامح.' : mode === 'scale' ? 'اضغط على ضلع معروف طوله (أو نقطتين — بتلتصق بالزوايا)، واكتب الطول الحقيقي. الأداة بتكبّر أو بتصغّر الرسمة كلها بنفس النسبة.' : mode === 'roof' || mode === 'bld' ? (mode === 'bld' ? 'ارسم المبنى أو الغرفة أو العمارة المجاورة: ' : '') + 'اضغط لتضيف نقاط الزوايا، وارجع اضغط على أول نقطة (أو Enter) لتسكّر الشكل. Shift = خطوط مستقيمة 90°. Esc يلغي.' : mode === 'inv' ? 'اضغط مكان الانفيرتر (أو نقطة نزول الكوابل من السطح). منه بتنحسب أطوال كوابل الـ DC.' : mode === 'tree' ? 'اضغط مكان الشجرة، وبعدين عدّل نصف القطر والارتفاع من القائمة تحت.' : mode === 'edge' ? 'اضغط على حافة السطح اللي بدك الصفوف تكون موازية إلها، والأداة بتحسب الـ Azimuth لحالها.' : mode === 'move' ? 'اسحب أي نقطة لتعدّلها.' : 'اسحب لتحرك الخريطة، وعجلة الماوس للتكبير.'}
@@ -249,6 +303,7 @@ export default function Roof({ ctl, part }) {
       <label className="b sm-file">📷 صورة الموقع<input type="file" accept="image/*" className="hid" onChange={onImg} /></label>
       {I && <>{num('اتجاه أعلى الصورة عن الشمال °', I.rot || 0, x => commit(n => { n.img.rot = +x || 0; }), 1, 150)}<span className="mute">المقياس {fmt(I.mpp * 100, 2)} cm/px</span>
         <button className="sm" onClick={() => { ctl.set('roofImg', ''); commit(n => { delete n.img; }); }}>حذف الصورة</button></>}
+      {I && <button className="b pri" onClick={analyze} disabled={!!anaBusy}>{anaBusy || '🔬 تحليل الصورة وإعادة الرسم'}</button>}
       {I && <button className="b" onClick={aiScan} disabled={aiBusy}>{aiBusy ? '🤖 جاري المسح…' : '🤖 مسح بالذكاء الاصطناعي (OpenAI)'}</button>}
       {num('تسامح الألوان للكشف', tol, x => setTol(+x || 32), 2, 120)}
       <button className="sm" onClick={restart}>↺ ابدأ من جديد (امسح الصورة والرسمة)</button>
@@ -299,6 +354,7 @@ export default function Roof({ ctl, part }) {
       {hover && <text x="10" y={Hpx - 10} className="rf-dim">x {fmt(hover[0], 2)} · y {fmt(hover[1], 2)} m</text>}
       {T.length > 0 && <text x={Wpx / 2} y={Hpx - 6} textAnchor="middle" className="rf-att">Imagery © Esri, Maxar, Earthstar Geographics</text>}
     </svg>}
+    {ana && anaView}
     {objPanel}
 
     {AZ && (R.bld.length > 0 || R.trees.length > 0) && <div className="rf-row rf-chips">{R.bld.map((b, i) => <span key={'b' + i} className="rf-chip">🏢 {b.name} · {b.h} m <button onClick={() => commit(n => { n.bld.splice(i, 1); })}>×</button></span>)}
