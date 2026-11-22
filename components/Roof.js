@@ -317,6 +317,14 @@ export default function Roof({ ctl, part }) {
       {R.pts.length > 2 && <span className="mute">اتجاه الواجهة Az {fmt(RF.layAz(R), 1)}° · {fmt(Math.abs(RF.area(R.pts)), 1)} m²</span>}</div>
     <div className="rf-hint">{H3[tool3]}</div></div>;
   function img3toggle() { return I ? <label className="rf-ck"><input type="checkbox" checked={gimg} onChange={e => setGimg(e.target.checked)} /> صورة الموقع على الأرض</label> : null; }
+  /* + module: bring back the last deleted one; else the next free spot on the structure; when the roof is full, raise the structure (up to 4 m) until one more fits */
+  function addMod() { setRcMsg(''); const off = L.off || []; if (off.length) { set('off', off.slice(0, -1)); return; }
+    const n = JSON.parse(JSON.stringify(R)), want = Yv.n + 1; n.lay.fill = 'count'; n.lay.cs = Yv.single ? 2 : 0; n.lay.nMan = want;
+    const fits = () => { const y = ctl.roofLayout(n); return y && y.n >= want; };
+    if (!fits()) { const h0 = +n.lay.h1 || 0; let ok = false; for (let h = Math.round(h0 * 10) / 10 + 0.1; h <= 4.001; h += 0.1) { n.lay.h1 = Math.round(h * 10) / 10; if (fits()) { ok = true; break; } }
+      if (!ok) { setRcMsg('السطح امتلأ: ما في مكان للوح زيادة حتى لو رفعنا الهيكل لـ 4 m. قلّل البعد عن التصوينة أو احذف عائق.'); return; }
+      setRcMsg('✓ رفعت الهيكل لـ ' + n.lay.h1 + ' m ليمرّ فوق جسم ويتسع لوح زيادة.'); }
+    commit(x => { x.lay = n.lay; }); }
   const stPanel = Yv && Yv.n ? (() => { const STv = RF.structure(Yv, L), hr = Yv.h1 + Yv.S * Math.sin(Yv.b), T0 = Yv.tables[0];
     return <div className="rf-box rf-st"><h4>🏗 الألواح والهيكل الحديدي <small className="mute">أبعاد حقيقية من الداتا شيت</small></h4>
       <div className="rf-row">
@@ -327,7 +335,7 @@ export default function Roof({ ctl, part }) {
         <label className="rf-f"><span>الوضع</span><select value={L.orient} onChange={e => set('orient', e.target.value)}><option value="P">طولي Portrait</option><option value="L">عرضي Landscape</option></select></label>
         {num('البعد عن التصوينة m', L.setback, x => set('setback', x), 0.1, 130)}</div>
       <div className="rf-cnt"><span className="rf-cnt-n">{Yv.n}</span><span>لوح على السطح{Yv.kWp ? ' = ' + fmt(Yv.kWp, 2) + ' kWp' : ''}{nDelta ? <b className={nDelta > 0 ? 'okc' : 'bad'}> ({nDelta > 0 ? '+' : ''}{nDelta})</b> : null}{ctl.lastC ? <span className="mute"> · التصميم {ctl.lastC.nModules}</span> : null}{Yv.nOff ? <span className="mute"> · محذوف {Yv.nOff}</span> : null}</span>
-        <button className="sm" onClick={() => commit(n => { n.lay.fill = 'count'; n.lay.cs = Yv.single ? 1 : 0; n.lay.nMan = Math.max(0, Yv.n - 1 + (n.lay.off || []).length); })}>− لوح</button><button className="sm" onClick={() => commit(n => { const off = n.lay.off || []; if (off.length) { n.lay.off = off.slice(0, -1); return; } n.lay.fill = 'count'; n.lay.cs = Yv.single ? 1 : 0; n.lay.nMan = Yv.n + 1; })}>+ لوح</button>
+        <button className="sm" onClick={() => { setRcMsg(''); commit(n => { n.lay.fill = 'count'; n.lay.cs = Yv.single ? 2 : 0; n.lay.nMan = Math.max(0, Yv.n - 1 + (n.lay.off || []).length); }); }}>− لوح</button><button className="sm" onClick={addMod}>+ لوح</button>
         <button className={'sm' + (L.fill === 'max' ? ' on' : '')} onClick={() => set('fill', 'max')}>املأ السطح كامل</button>{ctl.lastC && <button className={'sm' + (L.fill === 'design' ? ' on' : '')} onClick={() => set('fill', 'design')}>حسب التصميم</button>}
         {ctl.lastC && Yv.n !== ctl.lastC.nModules && <button className="b pri" onClick={() => setRcMsg(ctl.useRoofCount().msg)}>✓ اعتمد عدد السطح بالتصميم ({Yv.n} لوح)</button>}
         <button className={'sm' + (tool3 === 'delmod' && view3 ? ' on' : '')} onClick={() => { setView3(true); setTool3('delmod'); }}>🗑➕ احذف/أضف ألواح بالنقر</button>{(L.off || []).length > 0 && <button className="sm" onClick={() => set('off', [])}>استرجع المحذوفة ({(L.off || []).length})</button>}</div>
