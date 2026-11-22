@@ -141,6 +141,11 @@ export default function Roof3D({ R, img, Y, sun, sel, onSelect, onMove, tool = '
           const up = P3(t, (m.u0 + m.u1) / 2, a + Y.mS, 0.03).sub(P3(t, (m.u0 + m.u1) / 2, a, 0.03)).normalize(), ax = W3(1, 0, 0).sub(W3(0, 0, 0)).normalize(), nrm = new THREE.Vector3().crossVectors(up, ax).normalize();
           if (nrm.y < 0) nrm.negate(); const zAx = up.clone().negate(), xAx = new THREE.Vector3().crossVectors(nrm, zAx).normalize(); mesh.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(xAx, nrm, zAx));
           mesh.castShadow = mesh.receiveShadow = true; mesh.userData = { mod: m.key }; S.mods.push(mesh); root.add(mesh); });
+        if (ti === 0) (Y.ghost || []).forEach(gm => { const tg = { vF: gm.vF }, a = gm.j * (Y.mS + (Y.nr > 1 ? gp : 0)), c0 = P3(tg, (gm.u0 + gm.u1) / 2, a + Y.mS / 2, 0.03);
+          const mesh = new THREE.Mesh(new THREE.BoxGeometry(gm.u1 - gm.u0 - 0.04, 0.03, Y.mS - 0.04), new THREE.MeshBasicMaterial({ color: '#22c55e', transparent: true, opacity: 0.35, depthWrite: false })); mesh.position.copy(c0);
+          const up = P3(tg, 0, a + Y.mS, 0.03).sub(P3(tg, 0, a, 0.03)).normalize(), ax = W3(1, 0, 0).sub(W3(0, 0, 0)).normalize(), nrm = new THREE.Vector3().crossVectors(up, ax).normalize(); if (nrm.y < 0) nrm.negate();
+          const zAx = up.clone().negate(), xAx = new THREE.Vector3().crossVectors(nrm, zAx).normalize(); mesh.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(xAx, nrm, zAx));
+          mesh.userData = { mod: gm.key, ghost: 1 }; S.mods.push(mesh); root.add(mesh); });
         if (!T) return; const e = ST.e, SL = Y.S;
         for (let k = 0; k < T.nf; k++) { const u = t.u0 + ST.ov + k * T.sp; if (u > t.u1 + 0.01) break;
           const r0 = P3(t, u, -0.03, -0.05), r1 = P3(t, u, SL + 0.02, -0.05); bar(r0, r1, 0.06, steel); // rafter
