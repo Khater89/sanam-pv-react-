@@ -2,6 +2,9 @@
 import { useState, useRef, useEffect } from 'react';
 import * as RF from '@/lib/engine/roof';
 import { detectRoof } from '@/lib/engine/vision';
+import { OBJ_PRESETS, presetOf, guessKind, rectPts } from '@/lib/engine/objects';
+import dynamic from 'next/dynamic';
+const Roof3D = dynamic(() => import('./Roof3D'), { ssr: false, loading: () => <div className="rf-3d mute" style={{ height: 520, display: 'grid', placeItems: 'center' }}>جاري تحميل العرض الثلاثي الأبعاد…</div> });
 import { fmt } from '@/lib/controller';
 
 const MODES_AZ = [['pan', '✋ تحريك'], ['wand', '🪄 كشف السطح من الصورة'], ['roof', '⬠ رسم السطح'], ['bld', '🏢 جسم/غرفة'], ['tree', '🌳 شجرة'], ['edge', '📐 حافة الاتجاه'], ['scale', '📏 مقياس الرسم'], ['move', '↔ تعديل/إضافة نقاط'], ['del', '🗑 حذف']];
@@ -39,7 +42,7 @@ function downscale(file, max) { return new Promise((res, rej) => { const fr = ne
 export default function Roof({ ctl, part }) {
   const AZ = part !== 'shade', MODES = AZ ? MODES_AZ : MODES_SH;
   const R0 = ctl.roof() || RF.blankRoof(), [mode, setMode] = useState(AZ && R0.pts.length < 3 ? 'roof' : 'pan'), [draft, setDraft] = useState([]), [hover, setHover] = useState(null);
-  const [sh, setSh] = useState({ on: 1, doy: 355, hr: 10 }), [full, setFull] = useState(false), [v, setV] = useState({ cx: 0, cy: 0, s: 12 }), [sel, setSel] = useState(null), [rect, setRect] = useState({ a: 20, b: 12, r: 0 }), [shd, setShd] = useState(null), [busy, setBusy] = useState(false);
+  const [view3, setView3] = useState(false), [sh, setSh] = useState({ on: 1, doy: 355, hr: 10 }), [full, setFull] = useState(false), [v, setV] = useState({ cx: 0, cy: 0, s: 12 }), [sel, setSel] = useState(null), [rect, setRect] = useState({ a: 20, b: 12, r: 0 }), [shd, setShd] = useState(null), [busy, setBusy] = useState(false);
   const svg = useRef(null), drag = useRef(null), Wpx = 900, Hpx = 520, R = R0, L = R.lay;
   const I = ctl.f.roofImg && R.img ? R.img : null, [sc, setSc] = useState([]), [scD, setScD] = useState(''), [tol, setTol] = useState(32), [vmsg, setVmsg] = useState('');
   const lat = ctl.num('lat'), lon = ctl.num('lon'), tilt = ctl.num('tilt');
@@ -58,11 +61,24 @@ export default function Roof({ ctl, part }) {
 
   const nearEdge = p => { const t = 10 / v.s; let best = null; const chk = arr => arr.forEach((a, j) => { const b = arr[(j + 1) % arr.length], dx = b[0] - a[0], dy = b[1] - a[1], L2 = dx * dx + dy * dy; let u = L2 ? ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / L2 : 0; u = Math.max(0, Math.min(1, u));
       const d = Math.hypot(p[0] - a[0] - u * dx, p[1] - a[1] - u * dy); if (d < t && (!best || d < best.d)) best = { a, b, d }; }); if (R.pts.length > 2) chk(R.pts); R.bld.forEach(b => chk(b.pts)); return best; };
-  const down = e => { e.currentTarget.setPointerCapture(e.pointerId); const p = toW(e); drag.current = { x: e.clientX, y: e.clientY, cx: v.cx, cy: v.cy, moved: false, vert: mode === 'move' ? nearVert(p, 12) : null }; };
+  /* objects: find, move, edit (shared by the 2D editor, the 3D view and the side panel) */
+  const objAt = p => { for (let i = R.trees.length - 1; i >= 0; i--) { const t = R.trees[i]; if (Math.hypot(t.x - p[0], t.y - p[1]) < Math.max(+t.r || 1, 8 / v.s)) return ['tree', i]; }
+    for (let i = R.bld.length - 1; i >= 0; i--) if (RF.inside(R.bld[i].pts, p[0], p[1])) return ['bld', i]; return null; };
+  const shift = (n, kind, i, dx, dy) => { if (kind === 'tree') { n.trees[i].x = Math.round((+n.trees[i].x + dx) * 100) / 100; n.trees[i].y = Math.round((+n.trees[i].y + dy) * 100) / 100; return; }
+    const b = n.bld[i]; b.pts = b.pts.map(q => [Math.round((q[0] + dx) * 1000) / 1000, Math.round((q[1] + dy) * 1000) / 1000]); if (b.rect) { b.rect.cx += dx; b.rect.cy += dy; } };
+  const moveObj = (kind, i, dx, dy) => commit(n => shift(n, kind, i, dx, dy));
+  const setKind = (n, i, k) => { const b = n.bld[i], pr = presetOf(k); b.kind = k; if (!pr) return; b.h = pr.h; if (pr.ref === 'ground') { b.ref = 'ground'; b.hg = Math.round(((+n.hb || 0) + pr.h) * 100) / 100; } else { b.ref = 'roof'; b.hg = ''; } fixH(n); };
+  const addPreset = k => { const pr = presetOf(k), c0 = R.pts.length > 2 ? cen(R.pts) : [v.cx, v.cy], nb = R.bld.length, c = [c0[0] + ((nb % 3) - 1) * 3.5, c0[1] + ((Math.floor(nb / 3) % 3) - 1) * 3.5], r = { cx: c[0], cy: c[1], w: pr.w, l: pr.l, rot: 0 };
+    if (pr.ref === 'ground') { const b = R.pts.length > 2 ? R.pts.reduce((a, q) => Math.max(a, q[0]), -1e9) : c[0]; r.cx = b + pr.w / 2 + 4; }
+    commit(n => { n.bld.push({ hAuto: true, name: pr.name, kind: k, rect: r, pts: rectPts(r), h: pr.h, ref: pr.ref || 'roof', hg: pr.ref === 'ground' ? Math.round(((+n.hb || 0) + pr.h) * 100) / 100 : '' }); fixH(n); setSel(['bld', n.bld.length - 1]); });
+    setVmsg('➕ انضاف "' + pr.name + '" بنص السطح بارتفاع تقديري ' + pr.h + ' m. اسحبه لمكانه (بالـ 3D أو بوضع ↔ بالرسمة)، وعدّل أبعاده وارتفاعه من لوحة الجسم.'); };
+  const down = e => { e.currentTarget.setPointerCapture(e.pointerId); const p = toW(e); const vt = mode === 'move' ? nearVert(p, 12) : null, ob = mode === 'move' && !vt ? objAt(p) : null; drag.current = { x: e.clientX, y: e.clientY, cx: v.cx, cy: v.cy, moved: false, vert: vt, obj: ob, p0: p, R0: ob ? JSON.parse(JSON.stringify(R)) : null }; };
   const move = e => { const p = toW(e); setHover(ortho(p, e)); const d = drag.current; if (!d) return; const dx = e.clientX - d.x, dy = e.clientY - d.y; if (Math.hypot(dx, dy) > 4) d.moved = true; if (!d.moved) return;
+    if (d.obj) { const n = JSON.parse(JSON.stringify(d.R0)); shift(n, d.obj[0], d.obj[1], p[0] - d.p0[0], p[1] - d.p0[1]); ctl.roofSet(n); setShd(null); return; }
     if (d.vert) { const V = d.vert; commit(n => { if (V.kind === 'roof') n.pts[V.j] = p; else if (V.kind === 'bld') n.bld[V.i].pts[V.j] = p; else { n.trees[V.i].x = p[0]; n.trees[V.i].y = p[1]; } }); return; }
     const r = svg.current.getBoundingClientRect(), k = Wpx / r.width; setV(o => ({ ...o, cx: d.cx - dx * k / o.s, cy: d.cy + dy * k / o.s })); };
-  const up = e => { const d = drag.current; drag.current = null; if (!d || d.moved) return; const p = ortho(toW(e), e);
+  const up = e => { const d = drag.current; drag.current = null; if (d && d.obj) setSel(d.obj); if (!d || d.moved) return; const p = ortho(toW(e), e);
+    if (mode === 'pan') { setSel(objAt(p)); return; }
     if (mode === 'roof' || mode === 'bld') { if (draft.length >= 3 && Math.hypot(p[0] - draft[0][0], p[1] - draft[0][1]) * v.s < 12) return finish(); setDraft(draft.concat([p])); }
     else if (mode === 'tree') { commit(n => { const inR = n.pts.length > 2 && RF.inside(n.pts, p[0], p[1]); n.trees.push({ x: p[0], y: p[1], r: 2, h: 5, tr: 20, ref: inR ? 'roof' : 'ground', hg: inR ? '' : (+n.hb || 0) + 5 }); fixH(n); }); setVmsg('🌳 انضافت شجرة. عدّل ارتفاعها ونصف قطرها بجدول الأجسام والارتفاعات تحت.'); }
     else if (mode === 'inv') commit(n => { n.lay.invPos = p; });
@@ -177,16 +193,42 @@ export default function Roof({ ctl, part }) {
     <label className="rf-f" style={{ minWidth: 220 }}><span>الساعة (توقيت شمسي) {fmt(sh.hr, 1)}</span><input type="range" min="6" max="18" step="0.5" value={sh.hr} onChange={e => setSh({ ...sh, hr: +e.target.value })} /></label>
     <span className="mute">{sun.el > 1 ? 'ارتفاع الشمس ' + fmt(sun.el, 1) + '° · اتجاهها ' + fmt(sun.az, 0) + '° · ظل جسم ارتفاعه 1 m = ' + fmt(kS, 2) + ' m' : 'الشمس تحت الأفق بهالساعة'}</span>
     {I && R.pts.length > 2 && <label className="rf-ck"><input type="checkbox" checked={full} onChange={e => setFull(e.target.checked)} /> أظهر الصورة كاملة</label>}</div>;
+  /* quick add + the selected object's panel */
+  const SB = sel && sel[0] === 'bld' ? R.bld[sel[1]] : null, ST = sel && sel[0] === 'tree' ? R.trees[sel[1]] : null;
+  const editB = fn => commit(n => { const b = n.bld[sel[1]]; fn(b, n); if (b.rect) b.pts = rectPts(b.rect); fixH(n); });
+  const objPanel = <div className="rf-objs">
+    <div className="rf-row rf-add"><b>➕ أضف جسم جاهز:</b>{OBJ_PRESETS.map(pr => <button key={pr.kind} className="sm" onClick={() => addPreset(pr.kind)}>{pr.name} <span className="mute">{pr.h}m</span></button>)}</div>
+    {SB && <div className="rf-box rf-sel"><h4>✏️ الجسم المختار <button className="sm" onClick={() => setSel(null)}>إغلاق</button></h4>
+      <div className="rf-row">
+        <label className="rf-f" style={{ minWidth: 200 }}><span>الاسم (الارتفاع بيتقدّر من الاسم)</span><input list="rf-names" value={SB.name || ''} onChange={e => { const nm = e.target.value, k = guessKind(nm); editB((b, n) => { b.name = nm; if (k && b.hAuto !== false && k !== b.kind) setKind(n, sel[1], k); }); }} />
+          <datalist id="rf-names">{OBJ_PRESETS.map(pr => <option key={pr.kind} value={pr.name} />)}</datalist></label>
+        <label className="rf-f"><span>النوع</span><select value={SB.kind || ''} onChange={e => editB((b, n) => { setKind(n, sel[1], e.target.value); const pr = presetOf(e.target.value); if (pr && (!b.name || /^(جسم|مبنى مجاور) \d+$/.test(b.name))) b.name = pr.name; b.hAuto = true; })}><option value="">— غير محدد —</option>{OBJ_PRESETS.map(pr => <option key={pr.kind} value={pr.kind}>{pr.name} ({pr.h} m)</option>)}</select></label>
+        <label className="rf-f"><span>المرجع</span><select value={SB.ref || 'roof'} onChange={e => editB((b, n) => { b.ref = e.target.value; if (b.ref === 'ground' && (b.hg === '' || b.hg == null)) b.hg = Math.round(((+n.hb || 0) + (+b.h || 0)) * 100) / 100; })}><option value="roof">على سطحي</option><option value="ground">من الأرض (مجاور)</option></select></label>
+        {SB.ref === 'ground' ? num('الارتفاع من الأرض m', SB.hg, x => editB(b => { b.hg = x; b.hAuto = false; }), 0.1, 140) : num('الارتفاع فوق السطح m', SB.h, x => editB(b => { b.h = x; b.hAuto = false; }), 0.1, 140)}
+      </div>
+      <div className="rf-row">{SB.rect ? <>{num('العرض m', SB.rect.w, x => editB(b => { b.rect.w = +x || 0.1; }), 0.1, 100)}{num('الطول m', SB.rect.l, x => editB(b => { b.rect.l = +x || 0.1; }), 0.1, 100)}{num('الدوران °', SB.rect.rot, x => editB(b => { b.rect.rot = +x || 0; }), 5, 100)}</>
+        : <span className="mute">شكل مرسوم بالنقاط: عدّل زواياه بوضع "↔ تعديل/إضافة نقاط".</span>}
+        <span className="mute">{fmt(Math.abs(RF.area(SB.pts)), 2)} m² · فوق سطحك {fmt(+SB.h || 0, 2)} m</span>
+        {[['⬅', -0.25, 0], ['➡', 0.25, 0], ['⬆', 0, 0.25], ['⬇', 0, -0.25]].map(([t, dx, dy]) => <button key={t} className="sm" title="تحريك 25 cm" onClick={() => moveObj('bld', sel[1], dx, dy)}>{t}</button>)}
+        <button className="sm" onClick={() => commit(n => { const c = JSON.parse(JSON.stringify(n.bld[sel[1]])); c.name = (c.name || '') + ' 2'; c.pts = c.pts.map(q => [q[0] + 1, q[1] - 1]); if (c.rect) { c.rect.cx += 1; c.rect.cy -= 1; } n.bld.push(c); setSel(['bld', n.bld.length - 1]); })}>نسخ</button>
+        <button className="sm" onClick={() => { commit(n => { n.bld.splice(sel[1], 1); }); setSel(null); }}>🗑 حذف</button></div></div>}
+    {ST && <div className="rf-box rf-sel"><h4>🌳 الشجرة المختارة <button className="sm" onClick={() => setSel(null)}>إغلاق</button></h4>
+      <div className="rf-row"><label className="rf-f"><span>المرجع</span><select value={ST.ref || 'roof'} onChange={e => commit(n => { const t = n.trees[sel[1]]; t.ref = e.target.value; if (t.ref === 'ground' && (t.hg === '' || t.hg == null)) t.hg = Math.round(((+n.hb || 0) + (+t.h || 0)) * 100) / 100; fixH(n); })}><option value="roof">على سطحي</option><option value="ground">من الأرض</option></select></label>
+        {ST.ref === 'ground' ? num('الارتفاع من الأرض m', ST.hg, x => commit(n => { n.trees[sel[1]].hg = x; fixH(n); }), 0.1, 140) : num('الارتفاع فوق السطح m', ST.h, x => commit(n => { n.trees[sel[1]].h = x; }), 0.1, 140)}
+        {num('نصف القطر m', ST.r, x => commit(n => { n.trees[sel[1]].r = x; }), 0.1, 100)}
+        <button className="sm" onClick={() => { commit(n => { n.trees.splice(sel[1], 1); }); setSel(null); }}>🗑 حذف</button></div></div>}
+    {!SB && !ST && <div className="mute">اضغط على أي جسم (بالرسمة بوضع ✋ أو بالـ 3D) لتختاره وتعدّل اسمه وارتفاعه ومكانه. بالـ 3D بتسحب الجسم بالماوس لمكانه، وبتلف حوالين السطح بالماوس وبتكبّر بالعجلة.</div>}
+  </div>;
   /* obstacles and their heights (shared by both tabs) */
   const hb = R.hb, refSel = (o, on) => <select value={o.ref || 'roof'} onChange={e => on(e.target.value)} style={{ width: 150 }}><option value="roof">على سطحي (فوق السطح)</option><option value="ground">من الأرض (مبنى/شجرة مجاورة)</option></select>;
   const hIn = (o, on, onG) => o.ref === 'ground' ? <>{num('الارتفاع من الأرض m', o.hg, onG, 0.1, 140)}<span className="mute">= {fmt(+o.h || 0, 2)} m فوق سطحك</span></> : num('الارتفاع فوق سطحك m', o.h, on, 0.1, 140);
   const obsBox = <div className="rf-box"><h4>الأجسام والارتفاعات</h4>
-    <div className="rf-row">{num('ارتفاع مبناك من الأرض للسطح m', hb, x => commit(n => { n.hb = x; fixH(n); }), 0.1, 200)}{num('ارتفاع التصوينة m', R.hp, x => commit(n => { n.hp = x; }), 0.05, 140)}</div>
+    <div className="rf-row">{num('ارتفاع مبناك من الأرض للسطح m', hb, x => commit(n => { n.hb = x; n.bld.forEach(b => { if (b.ref === 'ground' && b.hAuto !== false) b.hg = Math.round(((+x || 0) + (+b.h || 0)) * 100) / 100; }); fixH(n); }), 0.1, 200)}{num('ارتفاع التصوينة m', R.hp, x => commit(n => { n.hp = x; }), 0.05, 140)}</div>
     {!(+hb > 0) && (R.bld.some(b => b.ref === 'ground') || R.trees.some(t => t.ref === 'ground')) && <div className="warn">اكتب ارتفاع مبناك، عشان نطرحه من ارتفاع المباني والأشجار المجاورة ونعرف قديش أعلى من سطحك.</div>}
     {!R.bld.length && !R.trees.length && <div className="mute">ما في أجسام. ارسم بـ "🏢" بيت الدرج والخزانات والعمارات المجاورة، وبـ "🌳" الأشجار، وبعدين اكتب ارتفاعاتها هون.</div>}
-    {R.bld.map((b, i) => <div key={'b' + i} className="rf-row"><input value={b.name || ''} onChange={e => commit(n => { n.bld[i].name = e.target.value; })} style={{ width: 120 }} />
+    {R.bld.map((b, i) => <div key={'b' + i} className={'rf-row' + (sel && sel[0] === 'bld' && sel[1] === i ? ' rf-on' : '')}><input value={b.name || ''} onChange={e => { const nm = e.target.value, k = guessKind(nm); commit(n => { n.bld[i].name = nm; if (k && n.bld[i].hAuto !== false && k !== n.bld[i].kind) setKind(n, i, k); }); }} style={{ width: 140 }} />
       {refSel(b, x => commit(n => { const o = n.bld[i]; o.ref = x; if (x === 'ground' && (o.hg === '' || o.hg == null)) o.hg = Math.round(((+n.hb || 0) + (+o.h || 0)) * 100) / 100; fixH(n); }))}
-      {hIn(b, x => commit(n => { n.bld[i].h = x; }), x => commit(n => { n.bld[i].hg = x; fixH(n); }))}
+      {hIn(b, x => commit(n => { n.bld[i].h = x; n.bld[i].hAuto = false; }), x => commit(n => { n.bld[i].hg = x; n.bld[i].hAuto = false; fixH(n); }))}
       <span className="mute">{fmt(Math.abs(RF.area(b.pts)), 1)} m²</span><button className="sm" onClick={() => commit(n => { n.bld.splice(i, 1); })}>×</button></div>)}
     {R.trees.map((t, i) => <div key={'t' + i} className="rf-row"><b style={{ width: 120 }}>🌳 شجرة {i + 1}</b>
       {refSel(t, x => commit(n => { const o = n.trees[i]; o.ref = x; if (x === 'ground' && (o.hg === '' || o.hg == null)) o.hg = Math.round(((+n.hb || 0) + (+o.h || 0)) * 100) / 100; fixH(n); }))}
@@ -199,6 +241,7 @@ export default function Roof({ ctl, part }) {
     <div className="rf-bar">{MODES.map(([k, l]) => <button key={k} className={mode === k ? 'on' : ''} onClick={() => { setMode(k); setDraft([]); }}>{l}</button>)}
       <span className="rf-sp" />
       <label className="rf-ck"><input type="checkbox" checked={!!(R.map && R.map.on)} onChange={e => commit(n => { n.map = { ...(n.map || {}), on: e.target.checked ? 1 : 0 }; })} /> صورة القمر الصناعي</label>
+      <button className={view3 ? 'on' : ''} onClick={() => setView3(!view3)}>{view3 ? '🗺 رجوع للرسمة 2D' : '🧊 عرض ثلاثي الأبعاد 3D'}</button>
       <button onClick={() => setV(o => ({ ...o, s: o.s * 1.3 }))}>＋</button><button onClick={() => setV(o => ({ ...o, s: o.s / 1.3 }))}>－</button></div>
     <div className="rf-hint">{mode === 'del' ? 'اضغط على نقطة زاوية لحذفها، أو جوّا جسم أو شجرة لحذفها.' : mode === 'move' ? 'اسحب أي نقطة لتحرّكها، أو اضغط على ضلع لتضيف نقطة جديدة عليه.' : mode === 'drop' ? 'اضغط مكان نزول الكوابل من السطح (الدرج أو الشفت). منه بنحسب الطريق لغرفة الكهرباء.' : mode === 'wand' ? 'اضغط بنص السطح بالصورة: الأداة بتلقى حدود السطح والأجسام اللي عليه (خزانات، بيت درج، مكيفات) لحالها. إذا طلع أكبر أو أصغر غيّر التسامح.' : mode === 'scale' ? 'اضغط على ضلع معروف طوله (أو نقطتين — بتلتصق بالزوايا)، واكتب الطول الحقيقي. الأداة بتكبّر أو بتصغّر الرسمة كلها بنفس النسبة.' : mode === 'roof' || mode === 'bld' ? (mode === 'bld' ? 'ارسم المبنى أو الغرفة أو العمارة المجاورة: ' : '') + 'اضغط لتضيف نقاط الزوايا، وارجع اضغط على أول نقطة (أو Enter) لتسكّر الشكل. Shift = خطوط مستقيمة 90°. Esc يلغي.' : mode === 'inv' ? 'اضغط مكان الانفيرتر (أو نقطة نزول الكوابل من السطح). منه بتنحسب أطوال كوابل الـ DC.' : mode === 'tree' ? 'اضغط مكان الشجرة، وبعدين عدّل نصف القطر والارتفاع من القائمة تحت.' : mode === 'edge' ? 'اضغط على حافة السطح اللي بدك الصفوف تكون موازية إلها، والأداة بتحسب الـ Azimuth لحالها.' : mode === 'move' ? 'اسحب أي نقطة لتعدّلها.' : 'اسحب لتحرك الخريطة، وعجلة الماوس للتكبير.'}
       {!lat && <b className="bad"> · حدد إحداثيات الموقع بتبويب 1 عشان تظهر صورة القمر الصناعي.</b>}</div>
@@ -227,6 +270,7 @@ export default function Roof({ ctl, part }) {
     {AZ && I && <div className="rf-steps">{[['1', 'المقياس', !!R.cal || I.mpp !== 0.05, 'scale'], ['2', 'حدود السطح بالخطوط', R.pts.length > 2, 'roof'], ['3', 'الأجسام والمباني المجاورة', R.bld.length + R.trees.length > 0, 'bld'], ['4', 'الارتفاعات (تحت)', R.bld.length + R.trees.length > 0 && (!R.bld.concat(R.trees).some(o => o.ref === 'ground') || +R.hb > 0), null]].map(([k, l, ok, m]) =>
       <button key={k} className={'rf-step' + (ok ? ' ok' : '')} onClick={() => m && (setMode(m), setDraft([]))}><b>{ok ? '✓' : k}</b> {l}</button>)}</div>}
     {sunBar}
+    {view3 ? (R.pts.length > 2 ? <Roof3D R={R} img={ctl.f.roofImg} Y={Y || (ctl.lastC ? ctl.roofLayout(R) : null)} sun={sun} sel={sel} onSelect={(k, i) => setSel(k ? [k, i] : null)} onMove={moveObj} /> : <div className="warn">ارسم حدود السطح أول (⬠) عشان يطلع العرض الثلاثي الأبعاد.</div>) :
     <svg ref={svg} viewBox={'0 0 ' + Wpx + ' ' + Hpx} className="rf-svg" dir="ltr" onPointerDown={down} onPointerMove={move} onPointerUp={up} onDoubleClick={finish} style={{ cursor: mode === 'pan' ? 'grab' : mode === 'wand' ? 'cell' : 'crosshair' }}>
       <rect width={Wpx} height={Hpx} fill="#e2e8f0" />
       {T.map(t => <image key={t.k} href={t.url} x={SX(t.x)} y={SY(t.y)} width={t.w * v.s + 0.5} height={t.h * v.s + 0.5} preserveAspectRatio="none" />)}
@@ -238,7 +282,7 @@ export default function Roof({ ctl, part }) {
       {R.pts.length > 2 && <polygon points={pp(R.pts)} fill="#fff" fillOpacity={T.length || I ? 0.22 : 0.9} stroke="#0f172a" strokeWidth={+R.hp > 0 ? 4 : 2} />}
       {R.pts.length > 2 && L.azMode === 'edge' && (() => { const i = Math.min(L.edge || 0, R.pts.length - 1), a = R.pts[i], b = R.pts[(i + 1) % R.pts.length]; return <line x1={SX(a[0])} y1={SY(a[1])} x2={SX(b[0])} y2={SY(b[1])} stroke="#16a34a" strokeWidth="6" strokeOpacity=".8" />; })()}
       {R.pts.length > 2 && R.pts.map((a, i) => { const b = R.pts[(i + 1) % R.pts.length]; return <text key={i} x={(SX(a[0]) + SX(b[0])) / 2} y={(SY(a[1]) + SY(b[1])) / 2 - 6} className="rf-dim">{fmt(RF.len(a, b), 2)} m</text>; })}
-      {R.bld.map((b, i) => <g key={i} onClick={() => setSel(['bld', i])}><polygon points={pp(b.pts)} fill="#64748b" fillOpacity=".45" stroke="#334155" strokeWidth="1.5" /><text x={SX(b.pts[0][0])} y={SY(b.pts[0][1]) - 4} className="rf-dim">{b.name} · {b.h}m</text>
+      {R.bld.map((b, i) => <g key={i} onClick={() => setSel(['bld', i])}><polygon points={pp(b.pts)} fill={sel && sel[0] === 'bld' && sel[1] === i ? '#f59e0b' : b.ref === 'ground' ? '#334155' : '#64748b'} fillOpacity=".5" stroke={sel && sel[0] === 'bld' && sel[1] === i ? '#b45309' : '#334155'} strokeWidth={sel && sel[0] === 'bld' && sel[1] === i ? 3 : 1.5} /><text x={SX(b.pts[0][0])} y={SY(b.pts[0][1]) - 4} className="rf-dim">{b.name} · {b.h}m</text>
         {v.s > 4 && b.pts.map((a, j) => { const c2 = b.pts[(j + 1) % b.pts.length], d = RF.len(a, c2); return d * v.s > 28 ? <text key={j} x={(SX(a[0]) + SX(c2[0])) / 2} y={(SY(a[1]) + SY(c2[1])) / 2 + 4} textAnchor="middle" className="rf-dim rf-dim2">{fmt(d, 2)}</text> : null; })}</g>)}
       {R.trees.map((t, i) => v.s > 4 && <text key={'td' + i} x={SX(t.x)} y={SY(t.y) + 14} textAnchor="middle" className="rf-dim rf-dim2">⌀ {fmt(2 * t.r, 1)} m</text>)}
       {R.trees.map((t, i) => <g key={i}><circle cx={SX(t.x)} cy={SY(t.y)} r={t.r * v.s} fill="#22c55e" fillOpacity=".45" stroke="#15803d" /><text x={SX(t.x)} y={SY(t.y)} className="rf-dim" textAnchor="middle">{t.h}m</text></g>)}
@@ -254,7 +298,8 @@ export default function Roof({ ctl, part }) {
       <g transform={'translate(' + (Wpx - 36) + ',36)'}><circle r="18" fill="#fff" stroke="#334155" /><path d="M0 -15 L6 4 L0 0 L-6 4 z" fill="#dc2626" /><text y="-22" textAnchor="middle" className="rf-dim">N</text></g>
       {hover && <text x="10" y={Hpx - 10} className="rf-dim">x {fmt(hover[0], 2)} · y {fmt(hover[1], 2)} m</text>}
       {T.length > 0 && <text x={Wpx / 2} y={Hpx - 6} textAnchor="middle" className="rf-att">Imagery © Esri, Maxar, Earthstar Geographics</text>}
-    </svg>
+    </svg>}
+    {objPanel}
 
     {AZ && (R.bld.length > 0 || R.trees.length > 0) && <div className="rf-row rf-chips">{R.bld.map((b, i) => <span key={'b' + i} className="rf-chip">🏢 {b.name} · {b.h} m <button onClick={() => commit(n => { n.bld.splice(i, 1); })}>×</button></span>)}
       {R.trees.map((t2, i) => <span key={'t' + i} className="rf-chip">🌳 {i + 1} · {t2.h} m <button onClick={() => commit(n => { n.trees.splice(i, 1); })}>×</button></span>)}

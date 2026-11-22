@@ -296,3 +296,6 @@ tr.pk td{background:#ecfdf5;font-weight:700}
 html[dir=ltr] select{background-position:right 9px top 55%,right 14px top 55%;padding-inline-start:12px;padding-inline-end:28px}
 .rf-dim2{font-size:10px;fill:#1e293b;paint-order:stroke;stroke:#fff;stroke-width:3px}
 .rf-steps{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}.rf-step{border:1px solid #cbd5e1;background:#fff;border-radius:999px;padding:4px 12px;font-size:13px;cursor:pointer}.rf-step b{display:inline-block;min-width:18px;height:18px;border-radius:50%;background:#e2e8f0;text-align:center;font-size:11px;line-height:18px;margin-inline-end:4px}.rf-step.ok{border-color:#16a34a;color:#166534}.rf-step.ok b{background:#16a34a;color:#fff}
+.rf-3d{width:100%;border:1px solid #cbd5e1;border-radius:12px;overflow:hidden;background:#dbe4ee;touch-action:none}
+.rf-objs{margin:8px 0;display:grid;gap:8px}.rf-add{flex-wrap:wrap;gap:6px;align-items:center}.rf-add .sm .mute{font-size:11px}
+.rf-sel{border-color:#f59e0b!important;background:#fffbeb}.rf-sel h4{display:flex;justify-content:space-between;align-items:center}.rf-on{background:#fef3c7;border-radius:8px}
