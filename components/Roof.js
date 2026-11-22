@@ -4,7 +4,7 @@ import * as RF from '@/lib/engine/roof';
 import { detectRoof } from '@/lib/engine/vision';
 import { fmt } from '@/lib/controller';
 
-const MODES_AZ = [['pan', '✋ تحريك'], ['wand', '🪄 كشف السطح من الصورة'], ['roof', '⬠ رسم السطح'], ['bld', '🏢 جسم/غرفة'], ['tree', '🌳 شجرة'], ['edge', '📐 حافة الاتجاه'], ['scale', '📏 مقياس الصورة'], ['move', '↔ تعديل/إضافة نقاط'], ['del', '🗑 حذف']];
+const MODES_AZ = [['pan', '✋ تحريك'], ['wand', '🪄 كشف السطح من الصورة'], ['roof', '⬠ رسم السطح'], ['bld', '🏢 جسم/غرفة'], ['tree', '🌳 شجرة'], ['edge', '📐 حافة الاتجاه'], ['scale', '📏 مقياس الرسم'], ['move', '↔ تعديل/إضافة نقاط'], ['del', '🗑 حذف']];
 const MODES_SH = [['pan', '✋ تحريك'], ['bld', '🏢 مبنى/غرفة'], ['tree', '🌳 شجرة'], ['drop', '⬇ نزول الكوابل (الدرج)'], ['inv', '🔌 مكان الانفيرتر'], ['move', '↔ تعديل/إضافة نقاط'], ['del', '🗑 حذف']];
 const M_LAT = 110574, mLon = lat => 111320 * Math.cos(lat * Math.PI / 180);
 
@@ -24,7 +24,7 @@ const imgToW = (I, px, py) => { const r = (I.rot || 0) * Math.PI / 180, dx = (px
 const wToImg = (I, x, y) => { const r = (I.rot || 0) * Math.PI / 180, dx = x * Math.cos(r) - y * Math.sin(r), dy = x * Math.sin(r) + y * Math.cos(r); return [dx / I.mpp + I.w / 2, -dy / I.mpp + I.h / 2]; };
 const loadImg = (src, cors) => new Promise((res, rej) => { const im = new Image(); if (cors) im.crossOrigin = 'anonymous'; im.onload = () => res(im); im.onerror = rej; im.src = src; });
 function downscale(file, max) { return new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => loadImg(fr.result).then(im => { const k = Math.min(1, max / Math.max(im.width, im.height)), c = document.createElement('canvas');
-  c.width = Math.round(im.width * k); c.height = Math.round(im.height * k); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); res({ src: c.toDataURL('image/jpeg', 0.82), w: c.width, h: c.height }); }).catch(rej); fr.onerror = rej; fr.readAsDataURL(file); }); }
+  c.width = Math.round(im.width * k); c.height = Math.round(im.height * k); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); res({ src: c.toDataURL('image/jpeg', 0.82), w: c.width, h: c.height, ow: im.width }); }).catch(rej); fr.onerror = rej; fr.readAsDataURL(file); }); }
 
 export default function Roof({ ctl, part }) {
   const AZ = part !== 'shade', MODES = AZ ? MODES_AZ : MODES_SH;
@@ -46,6 +46,8 @@ export default function Roof({ ctl, part }) {
   const nearVert = (p, tol) => { let best = null; const t = tol / v.s, chk = (arr, kind, i) => arr.forEach((q, j) => { const d = Math.hypot(q[0] - p[0], q[1] - p[1]); if (d < t && (!best || d < best.d)) best = { kind, i, j, d }; });
     chk(R.pts, 'roof', 0); R.bld.forEach((b, i) => chk(b.pts, 'bld', i)); R.trees.forEach((t, i) => chk([[t.x, t.y]], 'tree', i)); return best; };
 
+  const nearEdge = p => { const t = 10 / v.s; let best = null; const chk = arr => arr.forEach((a, j) => { const b = arr[(j + 1) % arr.length], dx = b[0] - a[0], dy = b[1] - a[1], L2 = dx * dx + dy * dy; let u = L2 ? ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / L2 : 0; u = Math.max(0, Math.min(1, u));
+      const d = Math.hypot(p[0] - a[0] - u * dx, p[1] - a[1] - u * dy); if (d < t && (!best || d < best.d)) best = { a, b, d }; }); if (R.pts.length > 2) chk(R.pts); R.bld.forEach(b => chk(b.pts)); return best; };
   const down = e => { e.currentTarget.setPointerCapture(e.pointerId); const p = toW(e); drag.current = { x: e.clientX, y: e.clientY, cx: v.cx, cy: v.cy, moved: false, vert: mode === 'move' ? nearVert(p, 12) : null }; };
   const move = e => { const p = toW(e); setHover(ortho(p, e)); const d = drag.current; if (!d) return; const dx = e.clientX - d.x, dy = e.clientY - d.y; if (Math.hypot(dx, dy) > 4) d.moved = true; if (!d.moved) return;
     if (d.vert) { const V = d.vert; commit(n => { if (V.kind === 'roof') n.pts[V.j] = p; else if (V.kind === 'bld') n.bld[V.i].pts[V.j] = p; else { n.trees[V.i].x = p[0]; n.trees[V.i].y = p[1]; } }); return; }
@@ -54,7 +56,9 @@ export default function Roof({ ctl, part }) {
     if (mode === 'roof' || mode === 'bld') { if (draft.length >= 3 && Math.hypot(p[0] - draft[0][0], p[1] - draft[0][1]) * v.s < 12) return finish(); setDraft(draft.concat([p])); }
     else if (mode === 'tree') commit(n => { n.trees.push({ x: p[0], y: p[1], r: 2, h: 5, tr: 20 }); });
     else if (mode === 'inv') commit(n => { n.lay.invPos = p; });
-    else if (mode === 'scale') setSc(sc.length >= 2 ? [p] : sc.concat([p]));
+    else if (mode === 'scale') { const vt = nearVert(p, 12), q = vt ? (vt.kind === 'roof' ? R.pts[vt.j] : vt.kind === 'bld' ? R.bld[vt.i].pts[vt.j] : p) : p;
+      if (!vt && sc.length !== 1) { const e = nearEdge(p); if (e) { setSc([e.a, e.b]); return; } }
+      setSc(sc.length >= 2 ? [q] : sc.concat([q])); }
     else if (mode === 'drop') commit(n => { n.lay.dbPos = p; });
     else if (mode === 'del') delAt(p);
     else if (mode === 'move') insertAt(p);
@@ -89,11 +93,13 @@ export default function Roof({ ctl, part }) {
   /* Google Maps scale: metres per pixel = 156543.03392 × cos(lat) / 2^zoom / devicePixelRatio */
   const [gz, setGz] = useState(''), [gdpr, setGdpr] = useState(typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1), [glink, setGlink] = useState('');
   const gLat = () => lat || 32;
-  const applyGoogle = (z, latX) => { if (!I || !(z > 0)) return; const mpp = 156543.03392 * Math.cos((latX || gLat()) * Math.PI / 180) / Math.pow(2, z) / (+gdpr || 1), k = mpp / I.mpp;
+  const applyGoogle = (z, latX) => { if (!I || !(z > 0)) return; const mpp = 156543.03392 * Math.cos((latX || gLat()) * Math.PI / 180) / Math.pow(2, z) / (+gdpr || 1) * (I.k0 || 1), k = mpp / I.mpp;
     commit(n => { n.img.mpp = mpp; n.pts = n.pts.map(q => [q[0] * k, q[1] * k]); n.bld = n.bld.map(b => ({ ...b, pts: b.pts.map(q => [q[0] * k, q[1] * k]) })); n.trees = n.trees.map(tr => ({ ...tr, x: tr.x * k, y: tr.y * k, r: tr.r * k })); });
     setV(o => ({ cx: o.cx * k, cy: o.cy * k, s: o.s / k })); setVmsg('✓ مقياس Google Maps: zoom ' + z + ' → ' + fmt(mpp * 100, 2) + ' cm/px. تأكد بقياس حافة معروفة إذا بدك دقة أعلى.'); };
   const parseLink = () => { const m = glink.match(/@(-?\d+\.\d+),(-?\d+\.\d+),(\d+(?:\.\d+)?)(z|m)/); if (!m) return setVmsg('ما لقيت @lat,lng,zoom بالرابط. انسخ الرابط من شريط العنوان بعد ما تفتح الموقع على Google Maps.');
-    const la = +m[1], lo = +m[2]; let z = +m[3]; if (m[4] === 'm') z = Math.log2(35200000 / +m[3]); setGz(z.toFixed(2)); if (!lat) { ctl.input('lat', la); ctl.input('lon', lo); } applyGoogle(z, la); };
+    const la = +m[1], lo = +m[2]; if (!lat) { ctl.input('lat', la); ctl.input('lon', lo); }
+    if (m[4] === 'm') { setMode('scale'); return setVmsg('هالرابط من عرض القمر الصناعي (فيه m بدل z) وما بيعطي مقياس دقيق. أخذت الإحداثيات بس. حدّد المقياس بنقطتين: اضغط على حافة معروفة واكتب طولها الحقيقي.'); }
+    const z = +m[3]; setGz(z.toFixed(2)); applyGoogle(z, la); };
   /* AI scan (OpenAI vision via the server route) */
   const [aiBusy, setAiBusy] = useState(false);
   const aiScan = async () => { if (!I) return setVmsg('ارفع صورة الموقع أول.'); setAiBusy(true); setVmsg('🤖 جاري المسح بالذكاء الاصطناعي…');
@@ -124,12 +130,16 @@ export default function Roof({ ctl, part }) {
       applyDetect(detectRoof(d, (p[0] - view[0]) * pxm, (view[3] - p[1]) * pxm, { mpp: 1 / pxm, tol }), (x, y) => [view[0] + x / pxm, view[3] - y / pxm]);
     } catch (e) { setVmsg('ما قدرت أقرأ الصورة' + (I ? '' : ' (القمر الصناعي ممكن يمنع القراءة)') + '. نزّل لقطة شاشة للسطح وارفعها من "📷 صورة الموقع".'); } };
   const onImg = async e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; setVmsg('جاري تجهيز الصورة…');
-    try { const r = await downscale(f, 1600); ctl.set('roofImg', r.src); commit(n => { n.img = { w: r.w, h: r.h, mpp: 0.05, rot: 0 }; n.map = { ...(n.map || {}), on: 0 }; });
+    try { const r = await downscale(f, 1600); ctl.set('roofImg', r.src); commit(n => { n.img = { w: r.w, h: r.h, mpp: 0.05, rot: 0, k0: r.ow / r.w }; n.map = { ...(n.map || {}), on: 0 }; delete n.cal; });
       setV({ cx: 0, cy: 0, s: Math.min(Wpx / (r.w * 0.05 + 4), Hpx / (r.h * 0.05 + 4)) }); setMode('scale'); setVmsg('الصورة انرفعت. هلق حدد المقياس: اضغط نقطتين مسافتهم معروفة (مثلاً طول حافة السطح) واكتب المسافة الحقيقية.'); }
     catch (er) { setVmsg('ما قدرت أفتح الصورة.'); } };
-  const applyScale = () => { const dReal = +scD; if (sc.length < 2 || !(dReal > 0) || !I) return; const dm = RF.len(sc[0], sc[1]), k = dReal / dm;
-    commit(n => { n.img.mpp = I.mpp * k; n.pts = n.pts.map(p => [p[0] * k, p[1] * k]); n.bld = n.bld.map(b => ({ ...b, pts: b.pts.map(p => [p[0] * k, p[1] * k]) })); n.trees = n.trees.map(t => ({ ...t, x: t.x * k, y: t.y * k, r: t.r * k })); });
-    setV(o => ({ cx: o.cx * k, cy: o.cy * k, s: o.s / k })); setSc([]); setScD(''); setMode('wand'); setVmsg('✓ المقياس: ' + fmt(I.mpp * k * 100, 2) + ' cm للبكسل. هلق اضغط "🪄 كشف السطح" بنص السطح.'); };
+  /* two-point calibration: real length ÷ length on the drawing = factor for the whole drawing (image, roof, objects, trees, markers) */
+  const applyScale = () => { const dReal = +scD; if (sc.length < 2 || !(dReal > 0)) return setVmsg('اضغط نقطتين واكتب المسافة الحقيقية بالمتر.'); const dm = RF.len(sc[0], sc[1]); if (!(dm > 0.01)) return setVmsg('النقطتين فوق بعض، اختار نقطتين متباعدات.');
+    const k = dReal / dm, S = q => [Math.round(q[0] * k * 1000) / 1000, Math.round(q[1] * k * 1000) / 1000];
+    commit(n => { if (n.img) n.img.mpp = n.img.mpp * k; n.pts = n.pts.map(S); n.bld = n.bld.map(b => ({ ...b, pts: b.pts.map(S) })); n.trees = n.trees.map(t => ({ ...t, x: t.x * k, y: t.y * k, r: t.r * k }));
+      if (n.lay.invPos) n.lay.invPos = S(n.lay.invPos); if (n.lay.dbPos) n.lay.dbPos = S(n.lay.dbPos); n.cal = { len: dReal, a: S(sc[0]), b: S(sc[1]) }; });
+    setV(o => ({ cx: o.cx * k, cy: o.cy * k, s: o.s / k })); setSc([]); setScD(''); setMode(I && R.pts.length < 3 ? 'wand' : 'pan');
+    setVmsg('✓ المقياس اتطبّق على كل الرسمة (×' + fmt(k, 3) + '): الخط اللي حددته صار ' + fmt(dReal, 2) + ' m، وكل الأطوال والمساحات انحسبت على نفس النسبة' + (I ? ' (' + fmt(I.mpp * k * 100, 2) + ' cm للبكسل)' : '') + (R.map && R.map.on && !I ? '. ملاحظة: صورة القمر الصناعي مقياسها ثابت من الإحداثيات، فممكن الرسمة ما تنطبق عليها بعد التعديل.' : '.')); };
   const calc = () => { setBusy(true); setTimeout(() => { const t = ctl.roofShade(); setShd(t ? { T: t, hor: RF.horizon(R, Y) } : null); setBusy(false); }, 30); };
   const horCSV = () => { const h = RF.horizon(R, Y); if (!h) return; const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob(['# Sanam PV horizon — Azimuth from South, West positive (PVsyst convention); Height in degrees\nAzimuth;Height\n' + h.map(p => p[0] + ';' + p[1]).join('\n')], { type: 'text/csv' }));
@@ -148,7 +158,7 @@ export default function Roof({ ctl, part }) {
       <span className="rf-sp" />
       <label className="rf-ck"><input type="checkbox" checked={!!(R.map && R.map.on)} onChange={e => commit(n => { n.map = { ...(n.map || {}), on: e.target.checked ? 1 : 0 }; })} /> صورة القمر الصناعي</label>
       <button onClick={() => setV(o => ({ ...o, s: o.s * 1.3 }))}>＋</button><button onClick={() => setV(o => ({ ...o, s: o.s / 1.3 }))}>－</button></div>
-    <div className="rf-hint">{mode === 'del' ? 'اضغط على نقطة زاوية لحذفها، أو جوّا جسم أو شجرة لحذفها.' : mode === 'move' ? 'اسحب أي نقطة لتحرّكها، أو اضغط على ضلع لتضيف نقطة جديدة عليه.' : mode === 'drop' ? 'اضغط مكان نزول الكوابل من السطح (الدرج أو الشفت). منه بنحسب الطريق لغرفة الكهرباء.' : mode === 'wand' ? 'اضغط بنص السطح بالصورة: الأداة بتلقى حدود السطح والأجسام اللي عليه (خزانات، بيت درج، مكيفات) لحالها. إذا طلع أكبر أو أصغر غيّر التسامح.' : mode === 'scale' ? 'اضغط نقطتين بينهم مسافة معروفة، واكتب المسافة الحقيقية.' : mode === 'roof' || mode === 'bld' ? (mode === 'bld' ? 'ارسم المبنى أو الغرفة أو العمارة المجاورة: ' : '') + 'اضغط لتضيف نقاط الزوايا، وارجع اضغط على أول نقطة (أو Enter) لتسكّر الشكل. Shift = خطوط مستقيمة 90°. Esc يلغي.' : mode === 'inv' ? 'اضغط مكان الانفيرتر (أو نقطة نزول الكوابل من السطح). منه بتنحسب أطوال كوابل الـ DC.' : mode === 'tree' ? 'اضغط مكان الشجرة، وبعدين عدّل نصف القطر والارتفاع من القائمة تحت.' : mode === 'edge' ? 'اضغط على حافة السطح اللي بدك الصفوف تكون موازية إلها، والأداة بتحسب الـ Azimuth لحالها.' : mode === 'move' ? 'اسحب أي نقطة لتعدّلها.' : 'اسحب لتحرك الخريطة، وعجلة الماوس للتكبير.'}
+    <div className="rf-hint">{mode === 'del' ? 'اضغط على نقطة زاوية لحذفها، أو جوّا جسم أو شجرة لحذفها.' : mode === 'move' ? 'اسحب أي نقطة لتحرّكها، أو اضغط على ضلع لتضيف نقطة جديدة عليه.' : mode === 'drop' ? 'اضغط مكان نزول الكوابل من السطح (الدرج أو الشفت). منه بنحسب الطريق لغرفة الكهرباء.' : mode === 'wand' ? 'اضغط بنص السطح بالصورة: الأداة بتلقى حدود السطح والأجسام اللي عليه (خزانات، بيت درج، مكيفات) لحالها. إذا طلع أكبر أو أصغر غيّر التسامح.' : mode === 'scale' ? 'اضغط على ضلع معروف طوله (أو نقطتين — بتلتصق بالزوايا)، واكتب الطول الحقيقي. الأداة بتكبّر أو بتصغّر الرسمة كلها بنفس النسبة.' : mode === 'roof' || mode === 'bld' ? (mode === 'bld' ? 'ارسم المبنى أو الغرفة أو العمارة المجاورة: ' : '') + 'اضغط لتضيف نقاط الزوايا، وارجع اضغط على أول نقطة (أو Enter) لتسكّر الشكل. Shift = خطوط مستقيمة 90°. Esc يلغي.' : mode === 'inv' ? 'اضغط مكان الانفيرتر (أو نقطة نزول الكوابل من السطح). منه بتنحسب أطوال كوابل الـ DC.' : mode === 'tree' ? 'اضغط مكان الشجرة، وبعدين عدّل نصف القطر والارتفاع من القائمة تحت.' : mode === 'edge' ? 'اضغط على حافة السطح اللي بدك الصفوف تكون موازية إلها، والأداة بتحسب الـ Azimuth لحالها.' : mode === 'move' ? 'اسحب أي نقطة لتعدّلها.' : 'اسحب لتحرك الخريطة، وعجلة الماوس للتكبير.'}
       {!lat && <b className="bad"> · حدد إحداثيات الموقع بتبويب 1 عشان تظهر صورة القمر الصناعي.</b>}</div>
     {AZ && <div className="rf-row rf-imgrow">
       <label className="b sm-file">📷 صورة الموقع<input type="file" accept="image/*" className="hid" onChange={onImg} /></label>
@@ -163,20 +173,29 @@ export default function Roof({ ctl, part }) {
       <label className="rf-f" style={{ minWidth: 260 }}><span>الصق رابط Google Maps (فيه @lat,lng,zoom)</span><input dir="ltr" value={glink} onChange={e => setGlink(e.target.value)} placeholder="https://www.google.com/maps/@31.95,35.91,20z" /></label>
       <button className="sm" onClick={parseLink}>خذ المقياس من الرابط</button>
       {num('أو Zoom', gz, x => setGz(x), 0.5, 90)}{num('دقة الشاشة (DPR)', gdpr, x => setGdpr(x), 0.25, 110)}<button className="sm" onClick={() => applyGoogle(+gz)}>طبّق Zoom</button>
-      {mode === 'scale' && sc.length === 2 && <>{num('المسافة الحقيقية m', scD, x => setScD(x), 0.01, 130)}<button className="b pri" onClick={applyScale}>طبّق المقياس ({fmt(RF.len(sc[0], sc[1]), 2)} m حالياً)</button></>}
+    </div>}
+    {AZ && (mode === 'scale' || vmsg || R.cal) && <div className="rf-row rf-imgrow">
+      {mode === 'scale' && <><b>📏 مقياس الرسم:</b>
+        <span className="mute">{sc.length === 0 ? 'اضغط على ضلع (بياخذ طوله كامل) أو على نقطتين بينهم مسافة معروفة.' : sc.length === 1 ? 'اضغط النقطة الثانية.' : 'الطول على الرسمة ' + fmt(RF.len(sc[0], sc[1]), 2) + ' m'}</span>
+        {sc.length === 2 && <>{num('الطول الحقيقي m', scD, x => setScD(x), 0.01, 130)}<button className="b pri" onClick={applyScale}>طبّق على كل الرسمة</button></>}
+        {sc.length > 0 && <button className="sm" onClick={() => setSc([])}>إلغاء النقاط</button>}</>}
+      {R.cal && mode !== 'scale' && <span className="okc">✓ الرسمة معايرة على خط طوله {fmt(R.cal.len, 2)} m</span>}
       {vmsg && <span className={vmsg[0] === '✓' ? 'okc' : 'mute'}>{vmsg}</span>}
     </div>}
     <svg ref={svg} viewBox={'0 0 ' + Wpx + ' ' + Hpx} className="rf-svg" dir="ltr" onPointerDown={down} onPointerMove={move} onPointerUp={up} onDoubleClick={finish} style={{ cursor: mode === 'pan' ? 'grab' : mode === 'wand' ? 'cell' : 'crosshair' }}>
       <rect width={Wpx} height={Hpx} fill="#e2e8f0" />
       {T.map(t => <image key={t.k} href={t.url} x={SX(t.x)} y={SY(t.y)} width={t.w * v.s + 0.5} height={t.h * v.s + 0.5} preserveAspectRatio="none" />)}
       {I && (() => { const c = [SX(0), SY(0)], w = I.w * I.mpp * v.s, h = I.h * I.mpp * v.s; return <image href={ctl.f.roofImg} x={c[0] - w / 2} y={c[1] - h / 2} width={w} height={h} transform={'rotate(' + (I.rot || 0) + ' ' + c[0] + ' ' + c[1] + ')'} opacity="0.95" />; })()}
-      {sc.length > 0 && <><polyline points={pp(hover && sc.length === 1 ? sc.concat([hover]) : sc)} fill="none" stroke="#e11d48" strokeWidth="3" />{sc.map((p, i) => <circle key={i} cx={SX(p[0])} cy={SY(p[1])} r="5" fill="#e11d48" />)}</>}
+      {sc.length > 0 && (() => { const L3 = hover && sc.length === 1 ? sc.concat([hover]) : sc; return <><polyline points={pp(L3)} fill="none" stroke="#e11d48" strokeWidth="3" />{sc.map((p, i) => <circle key={i} cx={SX(p[0])} cy={SY(p[1])} r="5" fill="#e11d48" />)}
+        {L3.length === 2 && <text x={(SX(L3[0][0]) + SX(L3[1][0])) / 2} y={(SY(L3[0][1]) + SY(L3[1][1])) / 2 + 16} className="rf-dim" fill="#e11d48">{fmt(RF.len(L3[0], L3[1]), 2)} m</text>}</>; })()}
       {(() => { const st = v.s > 20 ? 1 : v.s > 6 ? 5 : 10, L2 = []; for (let x = Math.ceil(view[0] / st) * st; x < view[2]; x += st) L2.push(<line key={'x' + x} x1={SX(x)} x2={SX(x)} y1="0" y2={Hpx} stroke="#fff" strokeOpacity={T.length ? 0.12 : 0.7} />);
         for (let y = Math.ceil(view[1] / st) * st; y < view[3]; y += st) L2.push(<line key={'y' + y} y1={SY(y)} y2={SY(y)} x1="0" x2={Wpx} stroke="#fff" strokeOpacity={T.length ? 0.12 : 0.7} />); return L2; })()}
       {R.pts.length > 2 && <polygon points={pp(R.pts)} fill="#fff" fillOpacity={T.length || I ? 0.22 : 0.9} stroke="#0f172a" strokeWidth={+R.hp > 0 ? 4 : 2} />}
       {R.pts.length > 2 && L.azMode === 'edge' && (() => { const i = Math.min(L.edge || 0, R.pts.length - 1), a = R.pts[i], b = R.pts[(i + 1) % R.pts.length]; return <line x1={SX(a[0])} y1={SY(a[1])} x2={SX(b[0])} y2={SY(b[1])} stroke="#16a34a" strokeWidth="6" strokeOpacity=".8" />; })()}
       {R.pts.length > 2 && R.pts.map((a, i) => { const b = R.pts[(i + 1) % R.pts.length]; return <text key={i} x={(SX(a[0]) + SX(b[0])) / 2} y={(SY(a[1]) + SY(b[1])) / 2 - 6} className="rf-dim">{fmt(RF.len(a, b), 2)} m</text>; })}
-      {R.bld.map((b, i) => <g key={i} onClick={() => setSel(['bld', i])}><polygon points={pp(b.pts)} fill="#64748b" fillOpacity=".45" stroke="#334155" strokeWidth="1.5" /><text x={SX(b.pts[0][0])} y={SY(b.pts[0][1]) - 4} className="rf-dim">{b.name} · {b.h}m</text></g>)}
+      {R.bld.map((b, i) => <g key={i} onClick={() => setSel(['bld', i])}><polygon points={pp(b.pts)} fill="#64748b" fillOpacity=".45" stroke="#334155" strokeWidth="1.5" /><text x={SX(b.pts[0][0])} y={SY(b.pts[0][1]) - 4} className="rf-dim">{b.name} · {b.h}m</text>
+        {v.s > 4 && b.pts.map((a, j) => { const c2 = b.pts[(j + 1) % b.pts.length], d = RF.len(a, c2); return d * v.s > 28 ? <text key={j} x={(SX(a[0]) + SX(c2[0])) / 2} y={(SY(a[1]) + SY(c2[1])) / 2 + 4} textAnchor="middle" className="rf-dim rf-dim2">{fmt(d, 2)}</text> : null; })}</g>)}
+      {R.trees.map((t, i) => v.s > 4 && <text key={'td' + i} x={SX(t.x)} y={SY(t.y) + 14} textAnchor="middle" className="rf-dim rf-dim2">⌀ {fmt(2 * t.r, 1)} m</text>)}
       {R.trees.map((t, i) => <g key={i}><circle cx={SX(t.x)} cy={SY(t.y)} r={t.r * v.s} fill="#22c55e" fillOpacity=".45" stroke="#15803d" /><text x={SX(t.x)} y={SY(t.y)} className="rf-dim" textAnchor="middle">{t.h}m</text></g>)}
       {mods}
       {!AZ && L.dbPos && <g transform={'translate(' + SX(L.dbPos[0]) + ',' + SY(L.dbPos[1]) + ')'}><circle r="11" fill="#ecfdf5" stroke="#059669" strokeWidth="2" /><text y="4" textAnchor="middle" className="rf-dim">⬇</text></g>}

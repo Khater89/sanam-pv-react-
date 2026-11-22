@@ -294,3 +294,4 @@ body{background:#f4f6f9}
 tr.pk td{background:#ecfdf5;font-weight:700}
 /* English (LTR): put the select chevron on the end side */
 html[dir=ltr] select{background-position:right 9px top 55%,right 14px top 55%;padding-inline-start:12px;padding-inline-end:28px}
+.rf-dim2{font-size:10px;fill:#1e293b;paint-order:stroke;stroke:#fff;stroke-width:3px}
