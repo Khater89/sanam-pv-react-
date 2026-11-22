@@ -5,8 +5,29 @@ import { detectRoof, orthogonalize } from '@/lib/engine/vision';
 import { toRuby } from '@/lib/engine/sketchup';
 import { OBJ_PRESETS, presetOf, guessKind, rectPts } from '@/lib/engine/objects';
 import dynamic from 'next/dynamic';
-const Roof3D = dynamic(() => import('./Roof3D'), { ssr: false, loading: () => <div className="rf-3d mute" style={{ height: 520, display: 'grid', placeItems: 'center' }}>جاري تحميل العرض الثلاثي الأبعاد…</div> });
+const load3D = () => import('./Roof3D');
+const Roof3D = dynamic(load3D, { ssr: false, loading: () => <div className="rf-3d mute" style={{ height: 520, display: 'grid', placeItems: 'center' }}>جاري تحميل العرض الثلاثي الأبعاد…</div> });
 import { fmt } from '@/lib/controller';
+import { Component } from 'react';
+
+/* any 3D failure (old page after a site update → missing file, no WebGL, a bad shape) stays inside this box instead of taking the whole page down */
+class Safe3D extends Component {
+  constructor(p) { super(p); this.state = { err: null }; }
+  static getDerivedStateFromError(err) { return { err }; }
+  componentDidCatch(err) { try { console.warn('3D view failed:', err); } catch (e) { } }
+  render() {
+    const e = this.state.err; if (!e) return this.props.children;
+    const m = String((e && (e.message || e.name)) || e), chunk = /chunk|loading.*(module|css)|failed to fetch|importing a module/i.test(m), gl = /webgl/i.test(m);
+    return <div className="rf-3d" style={{ height: 520, display: 'grid', placeItems: 'center', textAlign: 'center', padding: 24 }}><div>
+      <div className="warn" style={{ marginBottom: 12 }}>{chunk ? 'الموقع انعمله تحديث وهاي الصفحة مفتوحة من قبل التحديث، فملف العرض الثلاثي الأبعاد القديم ما عاد موجود. احفظ المشروع وحدّث الصفحة.' : gl ? 'المتصفح ما شغّل WebGL (كرت الشاشة أو تسريع الرسوم مطفي)، فالعرض الثلاثي الأبعاد مش متاح هون. الرسمة 2D وكل الحسابات شغالة عادي.' : 'صار خطأ بالعرض الثلاثي الأبعاد. شغلك ما راح، ارجع للرسمة 2D أو جرّب مرة ثانية.'}</div>
+      <div className="mute" style={{ fontSize: 12, marginBottom: 12, direction: 'ltr' }} translate="no">{m.slice(0, 160)}</div>
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
+        {chunk && <button className="on" onClick={async () => { try { await this.props.onSave(); } catch (x) { } location.reload(); }}>💾 احفظ وحدّث الصفحة</button>}
+        {!chunk && <button onClick={() => this.setState({ err: null })}>↻ جرّب مرة ثانية</button>}
+        <button onClick={() => { this.setState({ err: null }); this.props.onBack(); }}>🗺 رجوع للرسمة 2D</button>
+      </div></div></div>;
+  }
+}
 
 const MODES_AZ = [['pan', '✋ تحريك'], ['wand', '🪄 كشف السطح من الصورة'], ['roof', '⬠ رسم السطح'], ['bld', '🏢 جسم/غرفة'], ['tree', '🌳 شجرة'], ['edge', '📐 حافة الاتجاه'], ['scale', '📏 مقياس الرسم'], ['move', '↔ تعديل/إضافة نقاط'], ['del', '🗑 حذف']];
 const MODES_SH = [['pan', '✋ تحريك'], ['bld', '🏢 مبنى/غرفة'], ['tree', '🌳 شجرة'], ['drop', '⬇ نزول الكوابل (الدرج)'], ['inv', '🔌 مكان الانفيرتر'], ['move', '↔ تعديل/إضافة نقاط'], ['del', '🗑 حذف']];
@@ -49,6 +70,7 @@ export default function Roof({ ctl, part }) {
   const lat = ctl.num('lat'), lon = ctl.num('lon'), tilt = ctl.num('tilt');
   const commit = fn => { const n = JSON.parse(JSON.stringify(R)); fn(n); ctl.roofSet(n); setShd(null); };
   const Y = AZ ? null : ctl.roofLayout(R), Yv = Y || (R.pts.length > 2 ? ctl.roofLayout(R) : null);
+  useEffect(() => { const t = setTimeout(() => { load3D().catch(() => { }); }, 1200); return () => clearTimeout(t); }, []); // fetch the 3D file with this page version, so a later site update can't break it
   useEffect(() => { const n = Yv ? Yv.n : null; if (nPrev.current != null && n != null && n !== nPrev.current) setNDelta(n - nPrev.current); nPrev.current = n; }, [Yv && Yv.n]); // eslint-disable-line
   /* near-shading loss of this drawing (updates when the roof, objects, tilt or structure height change) */
   const [sloss, setSloss] = useState(null), lkey = Yv && Yv.n ? [ctl.f.roof, ctl.f.tilt, ctl.f.ns, Yv.n].join('|') : '';
@@ -403,7 +425,7 @@ export default function Roof({ ctl, part }) {
     {AZ && I && <div className="rf-steps">{[['1', 'المقياس', !!R.cal || I.mpp !== 0.05, 'scale'], ['2', 'حدود السطح بالخطوط', R.pts.length > 2, 'roof'], ['3', 'الأجسام والمباني المجاورة', R.bld.length + R.trees.length > 0, 'bld'], ['4', 'الارتفاعات (تحت)', R.bld.length + R.trees.length > 0 && (!R.bld.concat(R.trees).some(o => o.ref === 'ground') || +R.hb > 0), null]].map(([k, l, ok, m]) =>
       <button key={k} className={'rf-step' + (ok ? ' ok' : '')} onClick={() => m && (setMode(m), setDraft([]))}><b>{ok ? '✓' : k}</b> {l}</button>)}</div>}
     {sunBar}
-    {view3 ? <>{tools3}<Roof3D R={R} img={ctl.f.roofImg} Y={Yv} sun={sun} sel={sel} tool={tool3} groundImg={gimg} onSelect={(k, i) => setSel(k ? [k, i] : null)} onMove={moveObj} onDraw={onDraw} onPush={onPush} onRotate={rotAll} onModule={onModule} /></> :
+    {view3 ? <>{tools3}<Safe3D onSave={() => ctl.projSave(false)} onBack={() => setView3(false)}><Roof3D R={R} img={ctl.f.roofImg} Y={Yv} sun={sun} sel={sel} tool={tool3} groundImg={gimg} onSelect={(k, i) => setSel(k ? [k, i] : null)} onMove={moveObj} onDraw={onDraw} onPush={onPush} onRotate={rotAll} onModule={onModule} /></Safe3D></> :
     <svg ref={svg} viewBox={'0 0 ' + Wpx + ' ' + Hpx} className="rf-svg" dir="ltr" onPointerDown={down} onPointerMove={move} onPointerUp={up} onDoubleClick={finish} style={{ cursor: mode === 'pan' ? 'grab' : mode === 'wand' ? 'cell' : 'crosshair' }}>
       <rect width={Wpx} height={Hpx} fill="#e2e8f0" />
       {T.map(t => <image key={t.k} href={t.url} x={SX(t.x)} y={SY(t.y)} width={t.w * v.s + 0.5} height={t.h * v.s + 0.5} preserveAspectRatio="none" />)}
