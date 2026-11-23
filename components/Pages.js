@@ -178,8 +178,8 @@ export function PSystem({ ctl }) {
       <div className="card"><h2>المصفوفة <small>Array design</small></h2>
         <div className="r3"><Fd ctl={ctl} id="nInv" label="عدد الانفيرترات" /><Fd ctl={ctl} id="ns" label="ألواح بالـ string (Ns)" /><Fd ctl={ctl} id="nstr" label="strings لكل انفيرتر" /></div>
         <div className="r2"><Fd ctl={ctl} id="dcacT" label={off ? 'DC/AC المستهدف (بدون حد قانوني للمنفصل)' : 'DC/AC المستهدف'} step="0.05" />
-          <div><label>&nbsp;</label><button className="b" style={{ width: '100%' }} onClick={() => ctl.autoS()}>توزيع تلقائي للـ strings</button></div></div>
-        <button className="b" style={{ width: '100%', marginTop: 8 }} onClick={() => ctl.fromBills()}>{off ? 'حجّم من الأحمال (نظام منفصل — بدون قيود الهيئة)' : 'حجّم من الفواتير حسب أنظمة الهيئة (تبويب 3)'}</button>
+          <div><label>&nbsp;</label><button className="b" style={{ width: '100%' }} onClick={() => { ctl.roofFollow(); ctl.autoS(); ctl.syncLater(); }}>توزيع تلقائي للـ strings</button></div></div>
+        <button className="b" style={{ width: '100%', marginTop: 8 }} onClick={() => { ctl.roofFollow(); ctl.fromBills(); ctl.syncLater(); }}>{off ? 'حجّم من الأحمال (نظام منفصل — بدون قيود الهيئة)' : 'حجّم من الفواتير حسب أنظمة الهيئة (تبويب 3)'}</button>
         <Html html={ctl.out.sizeMsg} />
       </div>
     </div>

@@ -270,8 +270,8 @@ export default function Roof({ ctl, part }) {
   const num = (lbl, val, on, step, w) => <label className="rf-f" style={w ? { width: w } : null}><span>{lbl}</span><input type="number" step={step || 'any'} value={val ?? ''} onChange={e => on(e.target.value === '' ? '' : +e.target.value)} /></label>;
 
   /* modules + frames in the editor */
-  let mods = null; if (Y && Y.n) { const F = Y.F, g = (Y.S - Y.nr * Y.mS) / Math.max(1, Y.nr - 1), cb = Math.cos(Y.b), poly = (u0, u1, v0, v1) => pp([RF.toW(F, u0, v0), RF.toW(F, u1, v0), RF.toW(F, u1, v1), RF.toW(F, u0, v1)]);
-    mods = Y.tables.map(t => <g key={t.id}>{t.mods.map(m => { const a = m.j * (Y.mS + (Y.nr > 1 ? g : 0)) * cb; return <polygon key={m.idx} points={poly(m.u0, m.u1, t.vF - a, t.vF - a - Y.mS * cb)} fill="#1e3a8a" fillOpacity=".85" stroke="#93c5fd" strokeWidth=".6" />; })}</g>).concat((Y.ghost || []).map(m => { const a = m.j * (Y.mS + (Y.nr > 1 ? g : 0)) * cb; return <polygon key={'g' + m.key} points={poly(m.u0, m.u1, m.vF - a, m.vF - a - Y.mS * cb)} fill="#22c55e" fillOpacity=".15" stroke="#16a34a" strokeDasharray="3 2" strokeWidth=".8" />; })); }
+  let mods = null; { const Y = Yv; if (Y && Y.n) { const F = Y.F, g = (Y.S - Y.nr * Y.mS) / Math.max(1, Y.nr - 1), cb = Math.cos(Y.b), poly = (u0, u1, v0, v1) => pp([RF.toW(F, u0, v0), RF.toW(F, u1, v0), RF.toW(F, u1, v1), RF.toW(F, u0, v1)]);
+    mods = Y.tables.map(t => <g key={t.id}>{t.mods.map(m => { const a = m.j * (Y.mS + (Y.nr > 1 ? g : 0)) * cb; return <polygon key={m.idx} points={poly(m.u0, m.u1, t.vF - a, t.vF - a - Y.mS * cb)} fill="#1e3a8a" fillOpacity=".85" stroke="#93c5fd" strokeWidth=".6" />; })}</g>).concat((Y.ghost || []).map(m => { const a = m.j * (Y.mS + (Y.nr > 1 ? g : 0)) * cb; return <polygon key={'g' + m.key} points={poly(m.u0, m.u1, m.vF - a, m.vF - a - Y.mS * cb)} fill="#22c55e" fillOpacity=".15" stroke="#16a34a" strokeDasharray="3 2" strokeWidth=".8" />; })); } }
 
   /* live shadow preview of the parapet, objects, neighbouring buildings and trees on the roof (sun at the chosen date/hour) */
   const sun = sunAt(lat || 32, sh.doy, sh.hr), kS = sun.el > 1 ? 1 / Math.tan(sun.el * Math.PI / 180) : 0, ux = Math.sin(sun.az * Math.PI / 180), uy = Math.cos(sun.az * Math.PI / 180);
@@ -339,7 +339,7 @@ export default function Roof({ ctl, part }) {
   function addMod() { setRcMsg(''); const off = L.off || []; if (off.length) { set('off', off.slice(0, -1)); return; }
     const gc = ctl.gridCap(Math.max(1, (Yv.kWp || 0) * 1000 / Math.max(1, Yv.n)));
     if (gc && Yv.n >= gc.n) { setRcMsg('وصلت للحد المسموح من الهيئة لهالاشتراك (' + (gc.ph === '1ph' ? 'سنغل فيز' : '3 فاز') + '): ' + gc.n + ' لوح = ' + fmt(gc.kw, 2) + ' kW AC × ' + gc.dc + ' DC/AC. ما بينفع تزيد ألواح بنظام مربوط على الشبكة.'); return; }
-    const n = JSON.parse(JSON.stringify(R)), want = Yv.n + 1; n.lay.fill = 'count'; n.lay.cs = Yv.single ? 2 : 0; n.lay.nMan = want;
+    const n = JSON.parse(JSON.stringify(R)), want = ctl.lastC ? ctl.nextCount(Yv.n, 1) : Yv.n + 1; n.lay.fill = 'count'; n.lay.cs = Yv.single ? 2 : 0; n.lay.nMan = want;
     const fits = () => { const y = ctl.roofLayout(n); return y && y.n >= want; };
     if (!fits()) { const h0 = +n.lay.h1 || 0; let ok = false; for (let h = Math.round(h0 * 10) / 10 + 0.1; h <= 4.001; h += 0.1) { n.lay.h1 = Math.round(h * 10) / 10; if (fits()) { ok = true; break; } }
       if (!ok) { setRcMsg('السطح امتلأ: ما في مكان للوح زيادة حتى لو رفعنا الهيكل لـ 4 m. قلّل البعد عن التصوينة أو احذف عائق.'); return; }
@@ -355,11 +355,12 @@ export default function Roof({ ctl, part }) {
         <label className="rf-f"><span>الوضع</span><select value={L.orient} onChange={e => set('orient', e.target.value)}><option value="P">طولي Portrait</option><option value="L">عرضي Landscape</option></select></label>
         {num('البعد عن التصوينة m', L.setback, x => set('setback', x), 0.1, 130)}</div>
       <div className="rf-cnt"><span className="rf-cnt-n">{Yv.n}</span><span>لوح على السطح{Yv.kWp ? ' = ' + fmt(Yv.kWp, 2) + ' kWp' : ''}{nDelta ? <b className={nDelta > 0 ? 'okc' : 'bad'}> ({nDelta > 0 ? '+' : ''}{nDelta})</b> : null}{ctl.lastC ? <span className="mute"> · التصميم {ctl.lastC.nModules}</span> : null}{Yv.nOff ? <span className="mute"> · محذوف {Yv.nOff}</span> : null}</span>
-        <button className="sm" onClick={() => { setRcMsg(''); commit(n => { n.lay.fill = 'count'; n.lay.cs = Yv.single ? 2 : 0; n.lay.nMan = Math.max(0, Yv.n - 1 + (n.lay.off || []).length); }); }}>− لوح</button><button className="sm" onClick={addMod}>+ لوح</button>
+        <button className="sm" onClick={() => { setRcMsg(''); const t = ctl.lastC ? ctl.nextCount(Yv.n, -1) : Yv.n - 1; commit(n => { n.lay.fill = 'count'; n.lay.cs = Yv.single ? 2 : 0; n.lay.nMan = Math.max(0, t + (n.lay.off || []).length); }); }}>− لوح</button><button className="sm" onClick={addMod}>+ لوح</button>
         <button className={'sm' + (L.fill === 'max' ? ' on' : '')} onClick={() => set('fill', 'max')}>املأ السطح كامل</button>{ctl.lastC && <button className={'sm' + (L.fill === 'design' ? ' on' : '')} onClick={() => set('fill', 'design')}>حسب التصميم</button>}
         {ctl.lastC && Yv.n !== ctl.lastC.nModules && <button className="b pri" onClick={() => setRcMsg(ctl.useRoofCount().msg)}>✓ اعتمد عدد السطح بالتصميم ({Yv.n} لوح)</button>}
         <button className={'sm' + (tool3 === 'delmod' && view3 ? ' on' : '')} onClick={() => { setView3(true); setTool3('delmod'); }}>🗑➕ احذف/أضف ألواح بالنقر</button>{(L.off || []).length > 0 && <button className="sm" onClick={() => set('off', [])}>استرجع المحذوفة ({(L.off || []).length})</button>}</div>
       {rcMsg && <div className={rcMsg[0] === '✓' ? 'info' : 'warn'}>{rcMsg}</div>}
+      {ctl.out.syncMsg && <div className={/⚠/.test(ctl.out.syncMsg) ? 'warn' : 'info'}>🔗 {ctl.out.syncMsg}</div>}
       {Yv.single && <div className="mute">🏗 هيكل واحد مرفوع فوق السطح: {Yv.nr} لوح فوق بعض × {Yv.tables[0].cols} عمود ({fmt(Yv.tables[0].len, 1)} × {fmt(Yv.D, 1)} m). الهيكل بيتخطى بس الأماكن اللي فيها جسم أعلى منه أو منور.</div>}
       {Yv.gridCapN > 0 && <div className="info">⚡ نظام مربوط على الشبكة: الألواح وقفت عند الحد المسموح من الهيئة لهالاشتراك ({Yv.gridCapN} لوح، {ctl.subPh() === '1ph' ? 'سنغل فيز' : '3 فاز'}). السطح بيساع أكثر، بس الزيادة ممنوعة.</div>}
       {Yv.cap > 0 && <div className="warn">السطح ما بيساع أكثر من {Yv.cap} لوح على هيكل واحد بهالارتفاع. ارفع الهيكل ليمرّ فوق الأجسام، أو احذف عوائق.</div>}
