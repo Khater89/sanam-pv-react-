@@ -345,7 +345,10 @@ export default function Roof({ ctl, part }) {
       if (!ok) { setRcMsg('السطح امتلأ: ما في مكان للوح زيادة حتى لو رفعنا الهيكل لـ 4 m. قلّل البعد عن التصوينة أو احذف عائق.'); return; }
       setRcMsg('✓ رفعت الهيكل لـ ' + n.lay.h1 + ' m ليمرّ فوق جسم ويتسع لوح زيادة.'); }
     commit(x => { x.lay = n.lay; }); }
-  const stPanel = Yv && Yv.n ? (() => { const STv = RF.structure(Yv, L), hr = Yv.h1 + Yv.S * Math.sin(Yv.b), T0 = Yv.tables[0];
+  /* raise-and-grow: lift the structure just above the tallest object on the roof and fill the whole roof, so the modules cover the objects' places */
+  const growH = Math.min(4, Math.max(+L.h1 || 0, R.bld.filter(b => b.ref !== 'ground' && b.kind !== 'opening' && b.kind !== 'keepout' && !(b.block)).reduce((a, b) => Math.max(a, +b.h || 0), 0) + 0.3));
+  const raiseGrow = () => { setRcMsg(''); commit(n => { n.lay.h1 = Math.round(growH * 20) / 20; n.lay.fill = 'max'; delete n.lay.nMan; n.lay.cs = 0; }); };
+  const stPanel = Yv && Yv.n ? (() => { const STv = RF.structure(Yv, L), SE = ctl.structEcon(Yv, STv), hr = Yv.h1 + Yv.S * Math.sin(Yv.b), T0 = Yv.tables[0];
     return <div className="rf-box rf-st"><h4>🏗 الألواح والهيكل الحديدي <small className="mute">أبعاد حقيقية من الداتا شيت</small></h4>
       <div className="rf-row">
         <label className="rf-f" style={{ width: 110 }}><span>الميل °</span><input type="number" step="0.5" value={ctl.f.tilt ?? ''} onChange={e => ctl.input('tilt', e.target.value)} /></label>
@@ -363,10 +366,13 @@ export default function Roof({ ctl, part }) {
       {ctl.out.syncMsg && <div className={/⚠/.test(ctl.out.syncMsg) ? 'warn' : 'info'}>🔗 {ctl.out.syncMsg}</div>}
       {Yv.single && <div className="mute">🏗 هيكل واحد مرفوع فوق السطح: {Yv.nr} لوح فوق بعض × {Yv.tables[0].cols} عمود ({fmt(Yv.tables[0].len, 1)} × {fmt(Yv.D, 1)} m). الهيكل بيتخطى بس الأماكن اللي فيها جسم أعلى منه أو منور.</div>}
       {Yv.gridCapN > 0 && <div className="info">⚡ نظام مربوط على الشبكة: الألواح وقفت عند الحد المسموح من الهيئة لهالاشتراك ({Yv.gridCapN} لوح، {ctl.subPh() === '1ph' ? 'سنغل فيز' : '3 فاز'}). السطح بيساع أكثر، بس الزيادة ممنوعة.</div>}
+      {L.fill === 'count' && +L.nMan - (L.off || []).length > Yv.n && <div className="warn">بهالارتفاع ({fmt(+L.h1 || 0, 2)} m) السطح بيساع {Yv.n} لوح بس من {+L.nMan - (L.off || []).length}: في أجسام أعلى من الهيكل. ارفعه، أو اضغط "⬆ ارفع وكبّر فوق الأجسام".</div>}
       {Yv.cap > 0 && <div className="warn">السطح ما بيساع أكثر من {Yv.cap} لوح على هيكل واحد بهالارتفاع. ارفع الهيكل ليمرّ فوق الأجسام، أو احذف عوائق.</div>}
-      <label className="rf-f rf-slide"><span>ارتفاع الهيكل (الحافة الأمامية) {fmt(+L.h1 || 0, 2)} m — ارفعه ليمرّ فوق الأجسام ويزيد عدد الألواح (بيرجع العداد لملء السطح كامل)</span><input type="range" min="0" max="4" step="0.05" value={+L.h1 || 0} onChange={e => commit(n => { n.lay.h1 = +e.target.value; if (n.lay.fill !== 'max') { n.lay.fill = 'max'; n.lay.cs = 0; } })} /></label>
+      <label className="rf-f rf-slide"><span>ارتفاع الهيكل (الحافة الأمامية) {fmt(+L.h1 || 0, 2)} m — بيغيّر الارتفاع بس، وعدد الألواح بيضل نفسه</span><input type="range" min="0" max="4" step="0.05" value={+L.h1 || 0} onChange={e => commit(n => { n.lay.h1 = +e.target.value; if (n.lay.fill === 'max') { n.lay.fill = 'count'; n.lay.nMan = Yv.n + (n.lay.off || []).length; n.lay.cs = Yv.plane ? 2 : Yv.single ? 1 : 0; } })} /></label>
+      <div className="rf-row"><button className="b pri" onClick={raiseGrow} title="بيرفع الهيكل فوق أعلى جسم على السطح وبيملا كل السطح، فبيغطي مكان الأجسام">⬆ ارفع وكبّر فوق الأجسام</button>
+        <span className="mute">بيرفع الهيكل لـ {fmt(growH, 2)} m (أعلى جسم على السطح + 30 cm) وبيعبّي السطح كامل، فالألواح بتغطي مكان الخزانات والغرف.</span></div>
       <div className="kpis">{[['اللوح', fmt(Math.max(Yv.mU, Yv.mS), 3) + ' × ' + fmt(Math.min(Yv.mU, Yv.mS), 3) + ' m'], ['الألواح', Yv.n + ' · ' + Yv.tables.length + ' طاولة'], ['طول الطاولة × عمقها', fmt(T0.len, 2) + ' × ' + fmt(Yv.D, 2) + ' m'],
-        ['الأرجل أمامية / خلفية', fmt(STv.hf, 2) + ' / ' + fmt(STv.hr, 2) + ' m'], ['الإطارات', STv.tables.reduce((a, t) => a + t.nf, 0) + ' إطار'], ['الحديد', fmt(STv.steelKg, 0) + ' kg']].map(([a, x]) => <div key={a} className="kpi"><div>{a}</div><b>{x}</b></div>)}</div>
+        ['الأرجل أمامية / خلفية', fmt(STv.hf, 2) + ' / ' + fmt(STv.hr, 2) + ' m'], ['الإطارات', STv.tables.reduce((a, t) => a + t.nf, 0) + ' إطار'], ['الحديد', fmt(STv.steelKg, 0) + ' kg'], ...(SE ? [['سعر الهيكل (تقدير)', fmt(SE.steelJD, 0) + ' JD · ' + fmt(SE.rng[1], 0) + ' JD/kWp'], ['وزن النظام على السطح', fmt(SE.totKg, 0) + ' kg · ' + fmt(SE.kgM2Array, 1) + ' kg/m²']] : [])].map(([a, x]) => <div key={a} className="kpi"><div>{a}</div><b>{x}</b></div>)}</div>
       <div className={sloss && sloss.near > 0.03 ? 'warn' : 'info'}>{!sloss ? 'خسارة الظل بتنحسب بعد تحميل بيانات الطقس.' : sloss === '…' ? '☀ جاري حساب خسارة الظل…' : sloss.err ? 'ما قدرت أحسب خسارة الظل: ' + sloss.err :
         <>☀ خسارة الظل القريب على هالرسمة: <b>{fmt(sloss.near * 100, 2)}٪</b> من الإشعاع{sloss.elec > 0.0005 ? <> + <b>{fmt(sloss.elec * 100, 2)}٪</b> أثر كهربائي</> : null}، يعني الإنتاج بيقل <b>{fmt(sloss.tot * 100, 2)}٪</b>. معامل ظل المنتشر {fmt(sloss.fd * 100, 1)}٪. هاد الرقم نفسه بيدخل المحاكاة ومخطط الخسائر (Near Shadings).</>}</div>
       <div className="mute">غيّر الميل أو ارتفاع الهيكل أو حرّك الأجسام: الرسمة والـ 3D والظل والخسائر بيتحدّثوا لحالهم. رفع الهيكل فوق التصوينة بيقلل ظلها، بس بيزيد طول الأرجل ووزن الحديد.</div>

@@ -138,7 +138,7 @@ export default function Roof3D({ R, img, Y, sun, sel, onSelect, onMove, tool = '
       const cr = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), new THREE.MeshStandardMaterial({ color: on ? '#f59e0b' : '#3f8f4a', transparent: true, opacity: 0.95 })); cr.scale.set(r, Math.max(0.5, top * 0.33), r); cr.position.set(+t.x, base + top * 0.67, -t.y); cr.castShadow = true; g.add(cr);
       const lb = label('شجرة · ' + (Math.round((+t.h || 0) * 10) / 10) + ' m'); lb.position.set(+t.x, base + top + 0.8, -t.y); g.add(lb);
       g.userData = { kind: 'tree', idx: i }; root.add(g); S.objs.push(g); });
-    // module tables with real module dimensions + the steel structure (frames: rafter, front/rear/middle legs, diagonal brace; horizontal rails)
+    // module tables with real module dimensions + a simple steel structure: columns, inclined rafters, horizontal purlins, modules on top
     if (Y && Y.n) { const F = Y.F, b = Y.b, cb = Math.cos(b), sb = Math.sin(b), gp = (Y.S - Y.nr * Y.mS) / Math.max(1, Y.nr - 1), ST = RF.structure(Y, R.lay || {});
       const W3 = (u, v, z) => { const w = RF.toW(F, u, v); return new THREE.Vector3(w[0], z, -w[1]); }, P3 = (t, u, s, dz) => W3(u, t.vF - s * cb, Y.h1 + s * sb + (dz || 0));
       const steel = new THREE.MeshStandardMaterial({ color: '#9aa4b2', metalness: 0.6, roughness: 0.45 }), railM = new THREE.MeshStandardMaterial({ color: '#cbd5e1', metalness: 0.6, roughness: 0.35 });
@@ -162,10 +162,7 @@ export default function Roof3D({ R, img, Y, sun, sel, onSelect, onMove, tool = '
         if (!T) return; const e = ST.e, SL = Y.S;
         for (let k = 0; k < T.nf; k++) { const u = t.u0 + ST.ov + k * T.sp; if (u > t.u1 + 0.01) break;
           const r0 = P3(t, u, -0.03, -0.05), r1 = P3(t, u, SL + 0.02, -0.05); bar(r0, r1, 0.06, steel); // rafter
-          const fT = P3(t, u, e, -0.05), fB = W3(u, t.vF - e * cb, 0), rT = P3(t, u, SL - e, -0.05), rB = W3(u, t.vF - (SL - e) * cb, 0);
-          bar(fB, fT, 0.06, steel); bar(rB, rT, 0.06, steel); bar(fB, rT, 0.04, steel);
-          if (ST.midLeg) { const mT = P3(t, u, SL / 2, -0.05), mB = W3(u, t.vF - SL / 2 * cb, 0); bar(mB, mT, 0.06, steel); }
-          [fB, rB].forEach(p => { const bp = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.02, 0.2), steel); bp.position.copy(p); root.add(bp); }); }
+          (ST.legsS || [e, SL - e]).forEach(sd => bar(W3(u, t.vF - sd * cb, 0), P3(t, u, sd, -0.05), 0.06, steel)); } // columns only: simple frame (columns → rafter → purlins → modules)
         const rows = Math.max(1, Y.nr); for (let j = 0; j < rows; j++) [0.25, 0.75].forEach(fr => { const sd = j * (Y.mS + (Y.nr > 1 ? gp : 0)) + fr * Y.mS; bar(P3(t, t.u0 - 0.05, sd, -0.015), P3(t, t.u1 + 0.05, sd, -0.015), 0.04, railM); }); }); }
     // camera target and shadow box
     S.ctr.target.set(cx, 0, -cy); const sc = S.sunL.shadow.camera, ext = span * 1.6; sc.left = -ext; sc.right = ext; sc.top = ext; sc.bottom = -ext; sc.near = 0.5; sc.far = span * 12; sc.updateProjectionMatrix();
