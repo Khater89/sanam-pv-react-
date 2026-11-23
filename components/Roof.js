@@ -338,7 +338,7 @@ export default function Roof({ ctl, part }) {
   /* + module: bring back the last deleted one; else the next free spot on the structure; when the roof is full, raise the structure (up to 4 m) until one more fits */
   function addMod() { setRcMsg(''); const off = L.off || []; if (off.length) { set('off', off.slice(0, -1)); return; }
     const gc = ctl.gridCap(Math.max(1, (Yv.kWp || 0) * 1000 / Math.max(1, Yv.n)));
-    if (gc && Yv.n >= gc.n) { setRcMsg('وصلت للحد المسموح من الهيئة لهالاشتراك (' + (gc.ph === '1ph' ? 'سنغل فيز' : '3 فاز') + '): ' + gc.n + ' لوح = ' + fmt(gc.kw, 2) + ' kW AC × ' + gc.dc + ' DC/AC. ما بينفع تزيد ألواح بنظام مربوط على الشبكة.'); return; }
+    if (gc && Yv.n >= gc.n) { setRcMsg('وصلت للحد المسموح من الهيئة لهالاشتراك (' + (gc.ph === '1ph' ? 'سنغل فيز' : '3 فاز') + '): ' + gc.n + ' لوح = ' + fmt(gc.ac, 2) + ' kW AC × ' + gc.dc + ' DC/AC (حد الهيئة ' + fmt(gc.kw, 2) + ' kW AC، والانفيرتر ' + fmt(gc.ac, 2) + ' kW). ما بينفع تزيد ألواح بنظام مربوط على الشبكة.'); return; }
     const n = JSON.parse(JSON.stringify(R)), want = ctl.lastC ? ctl.nextCount(Yv.n, 1) : Yv.n + 1; n.lay.fill = 'count'; n.lay.cs = Yv.single ? 2 : 0; n.lay.nMan = want;
     const fits = () => { const y = ctl.roofLayout(n); return y && y.n >= want; };
     if (!fits()) { const h0 = +n.lay.h1 || 0; let ok = false; for (let h = Math.round(h0 * 10) / 10 + 0.1; h <= 4.001; h += 0.1) { n.lay.h1 = Math.round(h * 10) / 10; if (fits()) { ok = true; break; } }
