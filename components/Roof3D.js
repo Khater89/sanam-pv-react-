@@ -90,6 +90,19 @@ export default function Roof3D({ R, img, Y, sun, sel, onSelect, onMove, tool = '
     const span = Math.max(b[2] - b[0], b[3] - b[1], 10), cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2;
     // ground
     const gr = new THREE.Mesh(new THREE.PlaneGeometry(span * 6, span * 6), new THREE.MeshStandardMaterial({ color: '#cfd8c4' })); gr.rotation.x = -Math.PI / 2; gr.position.set(cx, -hb - 0.01, -cy); gr.receiveShadow = true; root.add(gr);
+    // compass on the ground next to the building: N/S/E/W, true south arrow (red) and the facade direction (green) with its deviation from south
+    { const R0 = Math.max(3, span * 0.22), x0 = b[2] + R0 * 1.6, z0 = -b[1] + R0 * 1.6, y0 = -hb + 0.03, grp = new THREE.Group();
+      const ring = new THREE.Mesh(new THREE.RingGeometry(R0 * 0.96, R0, 64), new THREE.MeshBasicMaterial({ color: '#334155', side: THREE.DoubleSide })); ring.rotation.x = -Math.PI / 2; grp.add(ring);
+      const arrow = (ang, len, col, w) => { const sh = new THREE.Shape(); sh.moveTo(-w, 0); sh.lineTo(w, 0); sh.lineTo(w, len * 0.78); sh.lineTo(w * 2.4, len * 0.78); sh.lineTo(0, len); sh.lineTo(-w * 2.4, len * 0.78); sh.lineTo(-w, len * 0.78); sh.lineTo(-w, 0);
+        const m = new THREE.Mesh(new THREE.ShapeGeometry(sh), new THREE.MeshBasicMaterial({ color: col, side: THREE.DoubleSide })); m.rotation.x = -Math.PI / 2; const g2 = new THREE.Group(); g2.add(m); g2.rotation.y = ang; return g2; };
+      // three: north = -z. Rotation about y by a turns +y(shape)→-z(north) after rotateX; south = PI
+      grp.add(arrow(0, R0 * 0.9, '#64748b', R0 * 0.03)); const sA = arrow(Math.PI, R0 * 0.95, '#dc2626', R0 * 0.045); sA.position.y = 0.01; grp.add(sA);
+      const fAz = R.pts.length > 2 && R.lay ? RF.edgeAz(R.pts, Math.min(R.lay.edge || 0, R.pts.length - 1)) : null, tAz = Y ? Y.az : null;
+      if (fAz != null) { const fa = arrow(Math.PI - fAz * Math.PI / 180, R0 * 0.8, '#16a34a', R0 * 0.035); fa.position.y = 0.02; grp.add(fa); }
+      if (tAz != null && Math.abs(tAz - (fAz || 0)) > 0.4) { const ta = arrow(Math.PI - tAz * Math.PI / 180, R0 * 0.7, '#2563eb', R0 * 0.03); ta.position.y = 0.03; grp.add(ta); }
+      [['N شمال', 0, -1], ['S جنوب', 0, 1], ['E شرق', 1, 0], ['W غرب', -1, 0]].forEach(([t, dx, dz]) => { const l = label(t); l.scale.multiplyScalar(R0 / 3); l.position.set(dx * R0 * 1.35, 0.8, dz * R0 * 1.35); grp.add(l); });
+      if (fAz != null) { const d = Math.round(fAz * 10) / 10, l = label(Math.abs(d) < 0.5 ? 'المبنى مواجه للجنوب' : 'المبنى منحرف ' + Math.abs(d) + '° ' + (d > 0 ? 'للغرب' : 'للشرق')); l.scale.multiplyScalar(R0 / 2.2); l.position.set(0, 0.8, R0 * 1.95); grp.add(l); }
+      grp.position.set(x0, y0, z0); root.add(grp); }
     // building body + roof slab
     const body = extr(R.pts, hb, -hb, new THREE.MeshStandardMaterial({ color: '#e7e1d6' })); body.userData = { kind: 'building', idx: 0 }; S.body = body; root.add(body); underlay(-hb + 0.005);
     // 1 m grid on the roof (clipped to the outline) to place objects; drags snap to 25 cm

@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { LayoutDashboard, FolderKanban, Plus, Database, Search, LogIn, User, Sun, Zap, BatteryCharging, Gauge, ChevronLeft, Trash2, ExternalLink, Filter, Save, Copy, Download, Upload, Printer, Check, MapPin } from 'lucide-react';
-import { fmt, CITIES, STATUS, statusOf, TYPE_INFO } from '@/lib/controller';
+import { fmt, CITIES, STATUS, statusOf, TYPE_INFO, BTYPES } from '@/lib/controller';
 import { Button, Card, CardHeader, CardTitle, CardContent, Badge, Input, NativeSelect, Table, Stat, Tabs, TabsList, TabsTrigger } from './ui-kit';
 import { readFile } from './ui';
 import { cn } from '@/lib/cn';
@@ -154,7 +154,7 @@ const TYPE_CARDS = [
   { k: 'offgrid', I: BatteryCharging, d: 'بدون شبكة متل مدامة. الألواح بتشحن البطاريات وبتغطي الليل.', tags: [['بدون شبكة'], ['أسوأ شهر'], ['بطاريات']] },
   { k: 'offgrid_nb', I: Sun, d: 'الأحمال من الألواح مباشرة وقت الشمس بس (مضخات، أحمال نهارية). حساب البطاريات متوقف.', tags: [['بدون شبكة'], ['نهاري بس'], ['بطاريات', 1]] }];
 export function NewProject({ ctl }) {
-  const [step, setStep] = useState(1), [name, setName] = useState(''), [client, setClient] = useState(''), [err, setErr] = useState('');
+  const [step, setStep] = useState(1), [name, setName] = useState(''), [client, setClient] = useState(''), [bt, setBt] = useState(''), [err, setErr] = useState('');
   const next = () => { if (!name.trim()) return setErr('اكتب اسم المشروع'); if (!client.trim()) return setErr('اكتب اسم العميل'); setErr(''); setStep(2); };
   return <div className="mx-auto max-w-3xl space-y-5">
     <div><h1 className="text-2xl font-extrabold tracking-tight text-slate-900">مشروع جديد</h1>
@@ -166,11 +166,13 @@ export function NewProject({ ctl }) {
         <div><label className="mb-1 block text-xs font-semibold text-slate-600">اسم المشروع *</label><Input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') next(); }} placeholder="مثلاً: فيلا الرابية 15 kWp" /></div>
         <div><label className="mb-1 block text-xs font-semibold text-slate-600">العميل *</label><Input value={client} onChange={e => setClient(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') next(); }} placeholder="اسم العميل أو الشركة" /></div>
       </div>
+      <div><label className="mb-1 block text-xs font-semibold text-slate-600">نوع المشروع</label>
+        <div className="flex flex-wrap gap-1.5">{BTYPES.map(b => <button key={b[0]} type="button" onClick={() => setBt(bt === b[0] ? '' : b[0])} className={cn('rounded-full border px-3 py-1 text-[13px] cursor-pointer', bt === b[0] ? 'border-brand-600 bg-brand-600 text-white' : 'border-slate-200 bg-white text-slate-700 hover:border-brand-500')}>{b[1]}</button>)}</div></div>
       {err && <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 ring-1 ring-red-200">{err}</div>}
       <div className="flex justify-between"><Button variant="ghost" onClick={() => go(ctl, 'home')}>إلغاء</Button><Button onClick={next}>التالي: نوع النظام<ChevronLeft /></Button></div>
     </CardContent></Card> : <>
       <div className="text-sm text-slate-500"><b className="text-slate-800">{name}</b> · {client} <button className="ms-2 text-brand-600 hover:underline cursor-pointer" onClick={() => setStep(1)}>تعديل</button></div>
-      <div className="grid gap-4 sm:grid-cols-2">{TYPE_CARDS.map(c => <button key={c.k} onClick={() => ctl.createProject(name.trim(), client.trim(), c.k)}
+      <div className="grid gap-4 sm:grid-cols-2">{TYPE_CARDS.map(c => <button key={c.k} onClick={() => ctl.createProject(name.trim(), client.trim(), c.k, bt)}
         className="group rounded-xl border-2 border-slate-200 bg-white p-5 text-start transition hover:-translate-y-0.5 hover:border-brand-500 hover:shadow-lg cursor-pointer">
         <div className="flex items-center gap-3"><div className="grid size-10 place-items-center rounded-lg bg-brand-50 text-brand-600 group-hover:bg-brand-600 group-hover:text-white"><c.I className="size-5" /></div><div><div className="font-bold text-slate-900">{TYPE_INFO[c.k][0]}</div></div></div>
         <p className="mt-3 text-[13px] leading-relaxed text-slate-500">{c.d}</p>

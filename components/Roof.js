@@ -64,7 +64,7 @@ function downscale(file, max) { return new Promise((res, rej) => { const fr = ne
 export default function Roof({ ctl, part }) {
   const AZ = part !== 'shade', MODES = AZ ? MODES_AZ : MODES_SH;
   const R0 = ctl.roof() || RF.blankRoof(), [mode, setMode] = useState(AZ && R0.pts.length < 3 ? 'roof' : 'pan'), [draft, setDraft] = useState([]), [hover, setHover] = useState(null);
-  const [rcMsg, setRcMsg] = useState(''), [tool3, setTool3] = useState('select'), [gimg, setGimg] = useState(true), [pick, setPick] = useState(null), nPrev = useRef(null), [nDelta, setNDelta] = useState(0), [view3, setView3] = useState(false), [sh, setSh] = useState({ on: 1, doy: 355, hr: 10 }), [full, setFull] = useState(false), [v, setV] = useState({ cx: 0, cy: 0, s: 12 }), [sel, setSel] = useState(null), [rect, setRect] = useState({ a: 20, b: 12, r: 0 }), [shd, setShd] = useState(null), [busy, setBusy] = useState(false);
+  const [rcMsg, setRcMsg] = useState(''), [qAdd, setQAdd] = useState(1), [secS, setSecS] = useState(null), [tool3, setTool3] = useState('select'), [gimg, setGimg] = useState(true), [pick, setPick] = useState(null), nPrev = useRef(null), [nDelta, setNDelta] = useState(0), [view3, setView3] = useState(false), [sh, setSh] = useState({ on: 1, doy: 355, hr: 10 }), [full, setFull] = useState(false), [v, setV] = useState({ cx: 0, cy: 0, s: 12 }), [sel, setSel] = useState(null), [rect, setRect] = useState({ a: 20, b: 12, r: 0 }), [shd, setShd] = useState(null), [busy, setBusy] = useState(false);
   const svg = useRef(null), drag = useRef(null), Wpx = 900, Hpx = 520, R = R0, L = R.lay;
   const I = ctl.f.roofImg && R.img ? R.img : null, [sc, setSc] = useState([]), [scD, setScD] = useState(''), [tol, setTol] = useState(32), [vmsg, setVmsg] = useState('');
   const lat = ctl.num('lat'), lon = ctl.num('lon'), tilt = ctl.num('tilt');
@@ -113,10 +113,15 @@ export default function Roof({ ctl, part }) {
       y -= l + 1; if (++col >= 4) { col = 0; y = b[3]; x += 5; } } }); fixH(n); });
     setPick(null); setVmsg('➕ انضاف ' + made + ' جسم جنب المبنى. اسحب كل واحد لمكانه على السطح (بيلتصق على شبكة 25 cm).'); };
   const setKind = (n, i, k) => { const b = n.bld[i], pr = presetOf(k); b.kind = k; if (!pr) return; b.h = pr.h; if (pr.ref === 'ground') { b.ref = 'ground'; b.hg = Math.round(((+n.hb || 0) + pr.h) * 100) / 100; } else { b.ref = 'roof'; b.hg = ''; } fixH(n); };
-  const addPreset = k => { const pr = presetOf(k), c0 = R.pts.length > 2 ? cen(R.pts) : [v.cx, v.cy], nb = R.bld.length, c = [c0[0] + ((nb % 3) - 1) * 3.5, c0[1] + ((Math.floor(nb / 3) % 3) - 1) * 3.5], r = { cx: c[0], cy: c[1], w: pr.w, l: pr.l, rot: 0 };
-    if (pr.ref === 'ground') { const b = R.pts.length > 2 ? R.pts.reduce((a, q) => Math.max(a, q[0]), -1e9) : c[0]; r.cx = b + pr.w / 2 + 4; }
-    commit(n => { n.bld.push({ hAuto: true, name: pr.name, kind: k, rect: r, pts: rectPts(r), h: pr.h, ref: pr.ref || 'roof', hg: pr.ref === 'ground' ? Math.round(((+n.hb || 0) + pr.h) * 100) / 100 : '' }); fixH(n); setSel(['bld', n.bld.length - 1]); });
-    setVmsg('➕ انضاف "' + pr.name + '" بنص السطح بارتفاع تقديري ' + pr.h + ' m. اسحبه لمكانه (بالـ 3D أو بوضع ↔ بالرسمة)، وعدّل أبعاده وارتفاعه من لوحة الجسم.'); };
+  const addPreset = k => { const pr = presetOf(k), q = Math.max(1, Math.min(50, Math.round(+qAdd) || 1)), c0 = R.pts.length > 2 ? cen(R.pts) : [v.cx, v.cy], nb = R.bld.length, c = [c0[0] + ((nb % 3) - 1) * 3.5, c0[1] + ((Math.floor(nb / 3) % 3) - 1) * 3.5];
+    if (pr.ref === 'ground') { const b = R.pts.length > 2 ? R.pts.reduce((a, q2) => Math.max(a, q2[0]), -1e9) : c[0]; c[0] = b + pr.w / 2 + 4; }
+    commit(n => { for (let i = 0; i < q; i++) { const r = { cx: Math.round((c[0] + i * (pr.w + 0.5)) * 4) / 4, cy: c[1], w: pr.w, l: pr.l, rot: 0 }; // copies side by side, 0.5 m apart
+        n.bld.push({ hAuto: true, name: pr.name + (q > 1 ? ' ' + (i + 1) : ''), kind: k, rect: r, pts: rectPts(r), h: pr.h, ref: pr.ref || 'roof', hg: pr.ref === 'ground' ? Math.round(((+n.hb || 0) + pr.h) * 100) / 100 : '' }); }
+      fixH(n); setSel(['bld', n.bld.length - 1]); });
+    setVmsg('➕ انضاف ' + (q > 1 ? q + ' × ' : '') + '"' + pr.name + '" بنص السطح بارتفاع تقديري ' + pr.h + ' m. اسحب كل واحد لمكانه (بالـ 3D أو بوضع ↔ بالرسمة)، وعدّل أبعاده وارتفاعه من لوحة الجسم.'); };
+  const dupSel = () => { const q = Math.max(1, Math.min(50, Math.round(+qAdd) || 1)); commit(n => { const b0 = n.bld[sel[1]]; for (let i = 1; i <= q; i++) { const b = JSON.parse(JSON.stringify(b0)); b.name = (b0.name || 'جسم') + ' ' + (i + 1);
+      if (b.rect) { b.rect.cx = Math.round((b0.rect.cx + i * (b0.rect.w + 0.5)) * 4) / 4; b.pts = rectPts(b.rect); } else { const dx = i * 2; b.pts = b0.pts.map(p => [p[0] + dx, p[1]]); } n.bld.push(b); } fixH(n); });
+    setVmsg('➕ انعمل ' + q + ' نسخة من الجسم جنبه. اسحب كل وحدة لمكانها.'); };
   const roofRot = () => { if (R.pts.length < 3) return 0; const i = Math.min(L.edge || 0, R.pts.length - 1), a = R.pts[i], b = R.pts[(i + 1) % R.pts.length]; return -Math.atan2(b[1] - a[1], b[0] - a[0]) * 180 / Math.PI; };
   const [brect, setBrect] = useState(null);
   const rectFrom = (p0, p1) => { const rot = roofRot(), a = rot * Math.PI / 180, c = Math.cos(a), s2 = Math.sin(a), loc = p => [p[0] * c - p[1] * s2, p[0] * s2 + p[1] * c];
@@ -307,6 +312,18 @@ export default function Roof({ ctl, part }) {
     </div>; })();
   /* modules + steel structure: tilt, front/rear heights, rows, orientation → layout, 3D, shading and losses all follow */
   const T3 = [['select', '👆 اختيار وسحب'], ['rect', '▭ مستطيل'], ['poly', '⬠ مضلع'], ['push', '⬆ دفع/سحب الارتفاع'], ['rotate', '⟳ تدوير المبنى'], ['delmod', '🗑➕ حذف/إضافة لوح']];
+  useEffect(() => { if (sel && (sel[0] === 'bld' || sel[0] === 'tree')) setSecS('objs'); }, [sel && sel[0], sel && sel[1]]); // picking an object opens its panel
+  /* option sections under the drawing: one open at a time instead of everything scattered on the page */
+  const sec = secS || (R.pts.length > 2 ? 'mods' : 'img'), setSec = setSecS;
+  const SECS = [['img', '📷 الصورة والمقياس'], ['roof', '🏠 السطح والمبنى'], ['objs', '📦 الأجسام', R.bld.length + R.trees.length], ['mods', '🔲 الألواح والهيكل والاتجاه', Yv ? Yv.n : 0], ['sun', '☀ الشمس والظل']];
+  /* rotate the PV table on the roof (the building stays); the project azimuth follows */
+  const fAz = R.pts.length > 2 ? RF.edgeAz(R.pts, Math.min(L.edge || 0, R.pts.length - 1)) : 0, tAz = R.pts.length > 2 ? RF.layAz(R) : 0, dirTxt = a => Math.abs(a) < 0.5 ? 'جنوب تماماً' : fmt(Math.abs(a), 1) + '° ' + (a > 0 ? 'للغرب' : 'للشرق');
+  const rotTable = d => commit(n => { n.lay.azMode = 'manual'; n.lay.az = Math.round((tAz + d) * 10) / 10; });
+  const tableRot = <div className="rf-row rf-trot"><b>🧭 الشمال والجنوب:</b><span className="mute">المبنى (الضلع الأخضر): {dirTxt(fAz)}</span>
+    <span className="rf-rot"><b>↻ تدوير طاولة الألواح</b>{[-5, -1, 1, 5].map(d => <button key={d} className="sm" onClick={() => rotTable(d)}>{d > 0 ? '+' : ''}{d}°</button>)}
+      <button className={'sm' + (L.azMode === 'edge' ? ' on' : '')} onClick={() => commit(n => { n.lay.azMode = 'edge'; })}>مع المبنى</button>
+      <button className={'sm' + (L.azMode === 'south' ? ' on' : '')} onClick={() => commit(n => { n.lay.azMode = 'south'; })}>جنوب تماماً</button></span>
+    <span className="rf-big2">الألواح: Az {fmt(tAz, 1)}° ({dirTxt(tAz)})</span></div>;
   const H3 = { select: 'اضغط على جسم لتختاره واسحبه لمكانه (بيلتصق على شبكة 25 cm). لف بالماوس وكبّر بالعجلة.', rect: 'اضغط واسحب على الأرض لترسم حدود المبنى كمستطيل (بيلتصق كل 25 cm).', poly: 'اضغط زوايا المبنى وحدة وحدة، وارجع اضغط على أول نقطة (أو دبل كليك) لتسكّره.',
     push: 'اسحب لفوق أو لتحت على المبنى لتغيّر ارتفاعه، أو على أي جسم لتغيّر ارتفاعه.', rotate: 'اسحب يمين أو يسار لتدوير المبنى وكل اللي عليه حوالين نصّه، لحتى يطابق اتجاهه الحقيقي.', delmod: 'اضغط على أي لوح لتحذفه، وبيضل مكانه أخضر شفاف. اضغط على المكان الأخضر ليرجع اللوح.' };
   const tools3 = <div className="rf-3dbar"><div className="rf-row">{T3.map(([k, l]) => <button key={k} className={'sm' + (tool3 === k ? ' on' : '')} onClick={() => setTool3(k)}>{l}</button>)}
@@ -314,11 +331,14 @@ export default function Roof({ ctl, part }) {
     <div className="rf-row">{num('عدد الطوابق', R.floors, x => commit(n => { n.floors = x; if (+x > 0) n.hb = Math.round(+x * 3.2 * 10) / 10; fixH(n); }), 1, 100)}{num('ارتفاع المبنى m', R.hb, x => commit(n => { n.hb = x; fixH(n); }), 0.1, 120)}
       <span className="rf-rot"><b>⟳</b>{[-15, -1, 1, 15].map(d => <button key={d} className="sm" onClick={() => rotAll(d)}>{d > 0 ? '+' : ''}{d}°</button>)}
         <button className="sm" title="تدوير ليصير الضلع الأخضر مواجه للجنوب تماماً" onClick={() => rotAll(-RF.layAz(R))}>واجهة للجنوب</button></span>
-      {R.pts.length > 2 && <span className="mute">اتجاه الواجهة Az {fmt(RF.layAz(R), 1)}° · {fmt(Math.abs(RF.area(R.pts)), 1)} m²</span>}</div>
+      {R.pts.length > 2 && <span className="mute">{fmt(Math.abs(RF.area(R.pts)), 1)} m²</span>}</div>
+    {R.pts.length > 2 && tableRot}
     <div className="rf-hint">{H3[tool3]}</div></div>;
   function img3toggle() { return I ? <label className="rf-ck"><input type="checkbox" checked={gimg} onChange={e => setGimg(e.target.checked)} /> صورة الموقع على الأرض</label> : null; }
   /* + module: bring back the last deleted one; else the next free spot on the structure; when the roof is full, raise the structure (up to 4 m) until one more fits */
   function addMod() { setRcMsg(''); const off = L.off || []; if (off.length) { set('off', off.slice(0, -1)); return; }
+    const gc = ctl.gridCap(Math.max(1, (Yv.kWp || 0) * 1000 / Math.max(1, Yv.n)));
+    if (gc && Yv.n >= gc.n) { setRcMsg('وصلت للحد المسموح من الهيئة لهالاشتراك (' + (gc.ph === '1ph' ? 'سنغل فيز' : '3 فاز') + '): ' + gc.n + ' لوح = ' + fmt(gc.kw, 2) + ' kW AC × ' + gc.dc + ' DC/AC. ما بينفع تزيد ألواح بنظام مربوط على الشبكة.'); return; }
     const n = JSON.parse(JSON.stringify(R)), want = Yv.n + 1; n.lay.fill = 'count'; n.lay.cs = Yv.single ? 2 : 0; n.lay.nMan = want;
     const fits = () => { const y = ctl.roofLayout(n); return y && y.n >= want; };
     if (!fits()) { const h0 = +n.lay.h1 || 0; let ok = false; for (let h = Math.round(h0 * 10) / 10 + 0.1; h <= 4.001; h += 0.1) { n.lay.h1 = Math.round(h * 10) / 10; if (fits()) { ok = true; break; } }
@@ -341,6 +361,7 @@ export default function Roof({ ctl, part }) {
         <button className={'sm' + (tool3 === 'delmod' && view3 ? ' on' : '')} onClick={() => { setView3(true); setTool3('delmod'); }}>🗑➕ احذف/أضف ألواح بالنقر</button>{(L.off || []).length > 0 && <button className="sm" onClick={() => set('off', [])}>استرجع المحذوفة ({(L.off || []).length})</button>}</div>
       {rcMsg && <div className={rcMsg[0] === '✓' ? 'info' : 'warn'}>{rcMsg}</div>}
       {Yv.single && <div className="mute">🏗 هيكل واحد مرفوع فوق السطح: {Yv.nr} لوح فوق بعض × {Yv.tables[0].cols} عمود ({fmt(Yv.tables[0].len, 1)} × {fmt(Yv.D, 1)} m). الهيكل بيتخطى بس الأماكن اللي فيها جسم أعلى منه أو منور.</div>}
+      {Yv.gridCapN > 0 && <div className="info">⚡ نظام مربوط على الشبكة: الألواح وقفت عند الحد المسموح من الهيئة لهالاشتراك ({Yv.gridCapN} لوح، {ctl.subPh() === '1ph' ? 'سنغل فيز' : '3 فاز'}). السطح بيساع أكثر، بس الزيادة ممنوعة.</div>}
       {Yv.cap > 0 && <div className="warn">السطح ما بيساع أكثر من {Yv.cap} لوح على هيكل واحد بهالارتفاع. ارفع الهيكل ليمرّ فوق الأجسام، أو احذف عوائق.</div>}
       <label className="rf-f rf-slide"><span>ارتفاع الهيكل (الحافة الأمامية) {fmt(+L.h1 || 0, 2)} m — ارفعه ليمرّ فوق الأجسام ويزيد عدد الألواح (بيرجع العداد لملء السطح كامل)</span><input type="range" min="0" max="4" step="0.05" value={+L.h1 || 0} onChange={e => commit(n => { n.lay.h1 = +e.target.value; if (n.lay.fill !== 'max') { n.lay.fill = 'max'; n.lay.cs = 0; } })} /></label>
       <div className="kpis">{[['اللوح', fmt(Math.max(Yv.mU, Yv.mS), 3) + ' × ' + fmt(Math.min(Yv.mU, Yv.mS), 3) + ' m'], ['الألواح', Yv.n + ' · ' + Yv.tables.length + ' طاولة'], ['طول الطاولة × عمقها', fmt(T0.len, 2) + ' × ' + fmt(Yv.D, 2) + ' m'],
@@ -359,8 +380,8 @@ export default function Roof({ ctl, part }) {
         return <tr key={p.kind} className={o.on ? 'rf-on' : ''}><td><input type="checkbox" checked={o.on} onChange={e => up('on', e.target.checked)} /></td><td>{p.name}</td>
           {['q', 'w', 'l', 'h'].map(k => <td key={k} className="n"><input type="number" step={k === 'q' ? 1 : 0.1} min="0" value={o[k]} onChange={e => up(k, e.target.value)} style={{ width: 70 }} /></td>)}</tr>; })}</tbody></table>
       <button className="b pri" onClick={addPicked}>أضف المختار ({Object.values(pick).filter(x => x.on).reduce((a, x) => a + (+x.q || 0), 0)})</button> <span className="mute">بينضافوا جنب المبنى، وبعدين بتسحب كل واحد لمكانه على السطح.</span></div>}
-    <div className="rf-row rf-add"><b>➕ أضف جسم جاهز:</b>{OBJ_PRESETS.map(pr => <button key={pr.kind} className="sm" onClick={() => addPreset(pr.kind)}>{pr.name} <span className="mute">{pr.h}m</span></button>)}</div>
-    {SB && <div className="rf-box rf-sel"><h4>✏️ الجسم المختار <button className="sm" onClick={() => setSel(null)}>إغلاق</button></h4>
+    <div className="rf-row rf-add"><b>➕ أضف جسم جاهز:</b><label className="rf-f rf-q"><span>العدد</span><input type="number" min="1" max="50" step="1" value={qAdd} onChange={e => setQAdd(e.target.value)} style={{ width: 60 }} /></label>{OBJ_PRESETS.map(pr => <button key={pr.kind} className="sm" onClick={() => addPreset(pr.kind)}>{pr.name} <span className="mute">{pr.h}m</span></button>)}</div>
+    {SB && <div className="rf-box rf-sel"><h4>✏️ الجسم المختار <button className="sm" onClick={dupSel}>⧉ كرّر × {Math.max(1, Math.round(+qAdd) || 1)}</button> <button className="sm" onClick={() => setSel(null)}>إغلاق</button></h4>
       <div className="rf-row">
         <label className="rf-f" style={{ minWidth: 200 }}><span>الاسم (الارتفاع بيتقدّر من الاسم)</span><input list="rf-names" value={SB.name || ''} onChange={e => { const nm = e.target.value, k = guessKind(nm); editB((b, n) => { b.name = nm; if (k && b.hAuto !== false && k !== b.kind) setKind(n, sel[1], k); }); }} />
           <datalist id="rf-names">{OBJ_PRESETS.map(pr => <option key={pr.kind} value={pr.name} />)}</datalist></label>
@@ -400,7 +421,7 @@ export default function Roof({ ctl, part }) {
   if (!AZ && R.pts.length < 3) return <div className="warn">ارسم السطح أول بتبويب "الاتجاه"، وبعدها بتنرسم الألواح هون لحالها وبنحسب الظل.</div>;
   if (!AZ && !ctl.lastC) return <div className="warn">صمّم النظام أول (تبويب الاستهلاك ثم النظام)، وبعدها الألواح بتنرسم على السطح لحالها.</div>;
   return <div className="roofed">
-    <div className="rf-bar">{MODES.map(([k, l]) => <button key={k} className={mode === k ? 'on' : ''} onClick={() => { setMode(k); setDraft([]); }}>{l}</button>)}
+    <div className="rf-bar">{MODES.map(([k, l]) => <button key={k} className={mode === k ? 'on' : ''} onClick={() => { setMode(k); setDraft([]); if (k === 'scale') setSecS('img'); }}>{l}</button>)}
       <span className="rf-sp" />
       <label className="rf-ck"><input type="checkbox" checked={!!(R.map && R.map.on)} onChange={e => commit(n => { n.map = { ...(n.map || {}), on: e.target.checked ? 1 : 0 }; })} /> صورة القمر الصناعي</label>
       <button onClick={() => { setView3(true); setTool3(R.pts.length > 2 ? 'push' : 'rect'); }}>📐 رسم زي SketchUp</button>
@@ -409,32 +430,8 @@ export default function Roof({ ctl, part }) {
       <button onClick={() => setV(o => ({ ...o, s: o.s * 1.3 }))}>＋</button><button onClick={() => setV(o => ({ ...o, s: o.s / 1.3 }))}>－</button></div>
     <div className="rf-hint">{mode === 'del' ? 'اضغط على نقطة زاوية لحذفها، أو جوّا جسم أو شجرة لحذفها.' : mode === 'move' ? 'اسحب أي نقطة لتحرّكها، أو اضغط على ضلع لتضيف نقطة جديدة عليه.' : mode === 'drop' ? 'اضغط مكان نزول الكوابل من السطح (الدرج أو الشفت). منه بنحسب الطريق لغرفة الكهرباء.' : mode === 'wand' ? 'اضغط بنص السطح بالصورة: الأداة بتلقى حدود السطح والأجسام اللي عليه (خزانات، بيت درج، مكيفات) لحالها. إذا طلع أكبر أو أصغر غيّر التسامح.' : mode === 'scale' ? 'اضغط على ضلع معروف طوله (أو نقطتين — بتلتصق بالزوايا)، واكتب الطول الحقيقي. الأداة بتكبّر أو بتصغّر الرسمة كلها بنفس النسبة.' : mode === 'roof' || mode === 'bld' ? (mode === 'bld' ? 'اسحب مستطيل فوق الجسم (بينحاذى مع حافة السطح) — أسرع طريقة للخزانات والغرف. أو ارسمه نقطة نقطة: ' : '') + 'اضغط لتضيف نقاط الزوايا، وارجع اضغط على أول نقطة (أو Enter) لتسكّر الشكل. Shift = خطوط مستقيمة 90°. Esc يلغي.' : mode === 'inv' ? 'اضغط مكان الانفيرتر (أو نقطة نزول الكوابل من السطح). منه بتنحسب أطوال كوابل الـ DC.' : mode === 'tree' ? 'اضغط مكان الشجرة، وبعدين عدّل نصف القطر والارتفاع من القائمة تحت.' : mode === 'edge' ? 'اضغط على حافة السطح اللي بدك الصفوف تكون موازية إلها، والأداة بتحسب الـ Azimuth لحالها.' : mode === 'move' ? 'اسحب أي نقطة لتعدّلها.' : 'اسحب لتحرك الخريطة، وعجلة الماوس للتكبير.'}
       {!lat && <b className="bad"> · حدد إحداثيات الموقع بتبويب 1 عشان تظهر صورة القمر الصناعي.</b>}</div>
-    {AZ && <div className="rf-row rf-imgrow">
-      <label className="b sm-file">📷 صورة الموقع<input type="file" accept="image/*" className="hid" onChange={onImg} /></label>
-      {I && <>{num('اتجاه أعلى الصورة عن الشمال °', I.rot || 0, x => commit(n => { n.img.rot = +x || 0; }), 1, 150)}<span className="mute">المقياس {fmt(I.mpp * 100, 2)} cm/px</span>
-        <button className="sm" onClick={() => { ctl.set('roofImg', ''); commit(n => { delete n.img; }); }}>حذف الصورة</button></>}
-      {I && <button className="b pri" onClick={analyze} disabled={!!anaBusy}>{anaBusy || '🔬 تحليل الصورة وإعادة الرسم'}</button>}
-      {I && <button className="b" onClick={aiScan} disabled={aiBusy}>{aiBusy ? '🤖 جاري المسح…' : '🤖 مسح بالذكاء الاصطناعي (OpenAI)'}</button>}
-      {num('تسامح الألوان للكشف', tol, x => setTol(+x || 32), 2, 120)}
-      <button className="sm" onClick={restart}>↺ ابدأ من جديد (امسح الصورة والرسمة)</button>
-    </div>}
-    {AZ && I && <div className="rf-row rf-imgrow">
-      <b className="mute">مقياس Google Maps:</b>
-      <label className="rf-f" style={{ minWidth: 260 }}><span>الصق رابط Google Maps (فيه @lat,lng,zoom)</span><input dir="ltr" value={glink} onChange={e => setGlink(e.target.value)} placeholder="https://www.google.com/maps/@31.95,35.91,20z" /></label>
-      <button className="sm" onClick={parseLink}>خذ المقياس من الرابط</button>
-      {num('أو Zoom', gz, x => setGz(x), 0.5, 90)}{num('دقة الشاشة (DPR)', gdpr, x => setGdpr(x), 0.25, 110)}<button className="sm" onClick={() => applyGoogle(+gz)}>طبّق Zoom</button>
-    </div>}
-    {AZ && (mode === 'scale' || vmsg || R.cal) && <div className="rf-row rf-imgrow">
-      {mode === 'scale' && <><b>📏 مقياس الرسم:</b>
-        <span className="mute">{sc.length === 0 ? 'اضغط على ضلع (بياخذ طوله كامل) أو على نقطتين بينهم مسافة معروفة.' : sc.length === 1 ? 'اضغط النقطة الثانية.' : 'الطول على الرسمة ' + fmt(RF.len(sc[0], sc[1]), 2) + ' m'}</span>
-        {sc.length === 2 && <>{num('الطول الحقيقي m', scD, x => setScD(x), 0.01, 130)}<button className="b pri" onClick={applyScale}>طبّق على كل الرسمة</button></>}
-        {sc.length > 0 && <button className="sm" onClick={() => setSc([])}>إلغاء النقاط</button>}</>}
-      {R.cal && mode !== 'scale' && <span className="okc">✓ الرسمة معايرة على خط طوله {fmt(R.cal.len, 2)} m</span>}
-      {vmsg && <span className={vmsg[0] === '✓' ? 'okc' : 'mute'}>{vmsg}</span>}
-    </div>}
     {AZ && I && <div className="rf-steps">{[['1', 'المقياس', !!R.cal || I.mpp !== 0.05, 'scale'], ['2', 'حدود السطح بالخطوط', R.pts.length > 2, 'roof'], ['3', 'الأجسام والمباني المجاورة', R.bld.length + R.trees.length > 0, 'bld'], ['4', 'الارتفاعات (تحت)', R.bld.length + R.trees.length > 0 && (!R.bld.concat(R.trees).some(o => o.ref === 'ground') || +R.hb > 0), null]].map(([k, l, ok, m]) =>
-      <button key={k} className={'rf-step' + (ok ? ' ok' : '')} onClick={() => m && (setMode(m), setDraft([]))}><b>{ok ? '✓' : k}</b> {l}</button>)}</div>}
-    {sunBar}
+      <button key={k} className={'rf-step' + (ok ? ' ok' : '')} onClick={() => { if (m) { setMode(m); setDraft([]); } setSecS(m === 'scale' ? 'img' : m === 'bld' ? 'objs' : 'roof'); }}><b>{ok ? '✓' : k}</b> {l}</button>)}</div>}
     {view3 ? <>{tools3}<Safe3D onSave={() => ctl.projSave(false)} onBack={() => setView3(false)}><Roof3D R={R} img={ctl.f.roofImg} Y={Yv} sun={sun} sel={sel} tool={tool3} groundImg={gimg} onSelect={(k, i) => setSel(k ? [k, i] : null)} onMove={moveObj} onDraw={onDraw} onPush={onPush} onRotate={rotAll} onModule={onModule} /></Safe3D></> :
     <svg ref={svg} viewBox={'0 0 ' + Wpx + ' ' + Hpx} className="rf-svg" dir="ltr" onPointerDown={down} onPointerMove={move} onPointerUp={up} onDoubleClick={finish} style={{ cursor: mode === 'pan' ? 'grab' : mode === 'wand' ? 'cell' : 'crosshair' }}>
       <rect width={Wpx} height={Hpx} fill="#e2e8f0" />
@@ -466,25 +463,59 @@ export default function Roof({ ctl, part }) {
       {T.length > 0 && <text x={Wpx / 2} y={Hpx - 6} textAnchor="middle" className="rf-att">Imagery © Esri, Maxar, Earthstar Geographics</text>}
     </svg>}
     {ana && anaView}
-    {stPanel}
-    {objPanel}
-
-    {AZ && (R.bld.length > 0 || R.trees.length > 0) && <div className="rf-row rf-chips">{R.bld.map((b, i) => <span key={'b' + i} className="rf-chip">🏢 {b.name} · {b.h} m <button onClick={() => commit(n => { n.bld.splice(i, 1); })}>×</button></span>)}
-      {R.trees.map((t2, i) => <span key={'t' + i} className="rf-chip">🌳 {i + 1} · {t2.h} m <button onClick={() => commit(n => { n.trees.splice(i, 1); })}>×</button></span>)}
-      <button className="sm" onClick={() => commit(n => { n.bld = []; n.trees = []; })}>حذف كل الأجسام</button></div>}
-    {AZ ? <><div className="rf-grid">
+    {AZ ? <>
+    <div className="rf-secs">{SECS.map(([k, l, n]) => <button key={k} className={'rf-sec' + (sec === k ? ' on' : '')} onClick={() => setSec(k)}>{l}{n ? <span className="rf-secn">{n}</span> : null}</button>)}</div>
+    {vmsg && sec !== 'img' && <div className="rf-row rf-imgrow"><span className={vmsg[0] === '✓' ? 'okc' : 'mute'}>{vmsg}</span></div>}
+    {sec === 'img' && <div className="rf-secb">
+    {AZ && <div className="rf-row rf-imgrow">
+      <label className="b sm-file">📷 صورة الموقع<input type="file" accept="image/*" className="hid" onChange={onImg} /></label>
+      {I && <>{num('اتجاه أعلى الصورة عن الشمال °', I.rot || 0, x => commit(n => { n.img.rot = +x || 0; }), 1, 150)}<span className="mute">المقياس {fmt(I.mpp * 100, 2)} cm/px</span>
+        <button className="sm" onClick={() => { ctl.set('roofImg', ''); commit(n => { delete n.img; }); }}>حذف الصورة</button></>}
+      {I && <button className="b pri" onClick={analyze} disabled={!!anaBusy}>{anaBusy || '🔬 تحليل الصورة وإعادة الرسم'}</button>}
+      {I && <button className="b" onClick={aiScan} disabled={aiBusy}>{aiBusy ? '🤖 جاري المسح…' : '🤖 مسح بالذكاء الاصطناعي (OpenAI)'}</button>}
+      {num('تسامح الألوان للكشف', tol, x => setTol(+x || 32), 2, 120)}
+      <button className="sm" onClick={restart}>↺ ابدأ من جديد (امسح الصورة والرسمة)</button>
+    </div>}
+    {AZ && I && <div className="rf-row rf-imgrow">
+      <b className="mute">مقياس Google Maps:</b>
+      <label className="rf-f" style={{ minWidth: 260 }}><span>الصق رابط Google Maps (فيه @lat,lng,zoom)</span><input dir="ltr" value={glink} onChange={e => setGlink(e.target.value)} placeholder="https://www.google.com/maps/@31.95,35.91,20z" /></label>
+      <button className="sm" onClick={parseLink}>خذ المقياس من الرابط</button>
+      {num('أو Zoom', gz, x => setGz(x), 0.5, 90)}{num('دقة الشاشة (DPR)', gdpr, x => setGdpr(x), 0.25, 110)}<button className="sm" onClick={() => applyGoogle(+gz)}>طبّق Zoom</button>
+    </div>}
+    {AZ && (mode === 'scale' || vmsg || R.cal) && <div className="rf-row rf-imgrow">
+      {mode === 'scale' && <><b>📏 مقياس الرسم:</b>
+        <span className="mute">{sc.length === 0 ? 'اضغط على ضلع (بياخذ طوله كامل) أو على نقطتين بينهم مسافة معروفة.' : sc.length === 1 ? 'اضغط النقطة الثانية.' : 'الطول على الرسمة ' + fmt(RF.len(sc[0], sc[1]), 2) + ' m'}</span>
+        {sc.length === 2 && <>{num('الطول الحقيقي m', scD, x => setScD(x), 0.01, 130)}<button className="b pri" onClick={applyScale}>طبّق على كل الرسمة</button></>}
+        {sc.length > 0 && <button className="sm" onClick={() => setSc([])}>إلغاء النقاط</button>}</>}
+      {R.cal && mode !== 'scale' && <span className="okc">✓ الرسمة معايرة على خط طوله {fmt(R.cal.len, 2)} m</span>}
+      {vmsg && <span className={vmsg[0] === '✓' ? 'okc' : 'mute'}>{vmsg}</span>}
+    </div>}
+    </div>}
+    {sec === 'roof' && <div className="rf-secb"><div className="rf-grid">
       <div className="rf-box"><h4>السطح</h4>
         <div className="rf-row">{num('طول السطح m', rect.a, x => setRect({ ...rect, a: x }), 0.1)}{num('عرض السطح m', rect.b, x => setRect({ ...rect, b: x }), 0.1)}{num('دوران عن الشمال °', rect.r, x => setRect({ ...rect, r: x }), 1)}</div>
         <button className="sm" onClick={quickRect}>⬛ ارسم سطح مستطيل بهالأبعاد</button>
         <div className="mute">السطح: {fmt(Math.abs(RF.area(R.pts)), 1)} m² · {R.pts.length} زوايا {R.pts.length > 2 && <button className="sm" onClick={() => commit(n => { n.pts = []; })}>مسح السطح</button>}</div>
       </div>
+    </div>{obsBox}</div>}
+    {sec === 'objs' && <div className="rf-secb">{objPanel}
+    {AZ && (R.bld.length > 0 || R.trees.length > 0) && <div className="rf-row rf-chips">{R.bld.map((b, i) => <span key={'b' + i} className="rf-chip">🏢 {b.name} · {b.h} m <button onClick={() => commit(n => { n.bld.splice(i, 1); })}>×</button></span>)}
+      {R.trees.map((t2, i) => <span key={'t' + i} className="rf-chip">🌳 {i + 1} · {t2.h} m <button onClick={() => commit(n => { n.trees.splice(i, 1); })}>×</button></span>)}
+      <button className="sm" onClick={() => commit(n => { n.bld = []; n.trees = []; })}>حذف كل الأجسام</button></div>}
+    </div>}
+    {sec === 'mods' && <div className="rf-secb">{!view3 && R.pts.length > 2 && tableRot}{stPanel}<div className="rf-grid">
       <div className="rf-box"><h4>الاتجاه (Azimuth)</h4>
         <select value={L.azMode} onChange={e => set('azMode', e.target.value)}><option value="edge">موازي لحافة السطح المختارة (الخضرا)</option><option value="south">جنوب تماماً (0°)</option><option value="manual">يدوي</option></select>
         {L.azMode === 'manual' && num('Azimuth °', L.az, x => set('az', x), 0.5)}
         <div className="rf-big">Az = {fmt(RF.layAz(R), 1)}°</div>
         <div className="mute">نفس تعريف PVsyst: جنوب 0، غرب +، شرق −. بيتحدّث بحقل الاتجاه فوق لحاله. الميل (Tilt) من حقل الميل: {tilt == null ? <b className="bad">ما في ميل، حطه فوق</b> : tilt + '°'}.</div>
       </div>
-    </div>{obsBox}</> : <>
+    </div></div>}
+    {sec === 'sun' && <div className="rf-secb">{sunBar}</div>}
+    </> : <>
+    {sunBar}
+    {stPanel}
+    {objPanel}
     {obsBox}
     <div className="rf-grid">
       <div className="rf-box"><h4>التصوينة</h4>

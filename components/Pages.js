@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { Fd, Sel, Picker, Html, Help, readFile } from './ui';
-import { CITIES, STYPE_INFO, TARIFFS, MON, IAM_ANG, LOSS_SRC, DESIGN_T_SRC, fmt } from '@/lib/controller';
+import { CITIES, STYPE_INFO, TARIFFS, BTYPES, MON, IAM_ANG, LOSS_SRC, DESIGN_T_SRC, fmt } from '@/lib/controller';
 import { importRows, parseCSV, loadXLSX, TEMPLATE_CSV } from '@/lib/loadsImport';
 import { HELP } from '@/lib/help';
 import Roof, { FullDesign } from './Roof';
@@ -15,6 +15,10 @@ export function PSite({ ctl }) {
         <Sel ctl={ctl} id="stype" bare options={[['grid', 'مربوط على الشبكة (On-grid)'], ['hybrid', 'هجين: شبكة + بطاريات (Hybrid)'], ['offgrid', 'منفصل عن الشبكة + بطاريات (Off-grid / Stand-alone)'], ['offgrid_nb', 'منفصل بدون بطاريات (Off-grid / PV direct)']]} />
         <div className="mute" style={{ marginTop: 6 }}>{STYPE_INFO[ctl.stype()]}</div>
         <div className="info">الخطوات: اختار نوع النظام والموقع هون، وبعدين الميل والاتجاه بتبويب 2، وبعدين الفواتير (kWh) أو الأحمال بتبويب 3، والبرنامج بيصمم لحاله. التعديل بتبويب 4، والمحاكاة بتبويب 6.</div>
+      </div>
+      <div className="card"><h2>نوع المشروع <small>Building type</small></h2>
+        <Sel ctl={ctl} id="btype" bare options={[['', '— اختار —']].concat(BTYPES.map(b => [b[0], b[1]]))} />
+        <div className="mute" style={{ marginTop: 6 }}>بيحدد فئة التعرفة الافتراضية بتبويب 3 (بتقدر تغيّرها هناك).</div>
       </div>
       <div className="card"><h2>الموقع الجغرافي <small>Geographical site</small></h2>
         <Sel ctl={ctl} id="city" label="الموقع" options={CITIES.map((c, i) => [String(i), c[0]])} />
