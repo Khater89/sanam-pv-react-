@@ -68,7 +68,7 @@ export default function Roof({ ctl, part }) {
   const svg = useRef(null), drag = useRef(null), Wpx = 900, Hpx = 520, R = R0, L = R.lay;
   const I = ctl.f.roofImg && R.img ? R.img : null, [sc, setSc] = useState([]), [scD, setScD] = useState(''), [tol, setTol] = useState(32), [vmsg, setVmsg] = useState('');
   const lat = ctl.num('lat'), lon = ctl.num('lon'), tilt = ctl.num('tilt');
-  const commit = fn => { const n = JSON.parse(JSON.stringify(R)); fn(n); ctl.roofSet(n); setShd(null); };
+  const commit = fn => { const n = JSON.parse(JSON.stringify(R)); fn(n); if (n.lay.nMan !== R.lay.nMan || n.lay.fill !== R.lay.fill) delete n.lay.nReq; ctl.roofSet(n); setShd(null); }; // a count the user picks replaces the remembered one
   const Y = AZ ? null : ctl.roofLayout(R), Yv = Y || (R.pts.length > 2 ? ctl.roofLayout(R) : null);
   useEffect(() => { const t = setTimeout(() => { load3D().catch(() => { }); }, 1200); return () => clearTimeout(t); }, []); // fetch the 3D file with this page version, so a later site update can't break it
   useEffect(() => { const n = Yv ? Yv.n : null; if (nPrev.current != null && n != null && n !== nPrev.current) setNDelta(n - nPrev.current); nPrev.current = n; }, [Yv && Yv.n]); // eslint-disable-line
@@ -342,7 +342,7 @@ export default function Roof({ ctl, part }) {
       setRcMsg(gc.ac < gc.kw - 0.05
         ? 'هذا أقصى عدد ألواح للانفيرتر الحالي: ' + gc.n + ' لوح = ' + fmt(gc.ac, 2) + ' kW × ' + gc.dc + ' DC/AC. حد الهيئة لهالاشتراك (' + ph + ') هو ' + fmt(gc.kw, 2) + ' kW، وما في بالداتا بيز انفيرتر أكبر من ' + fmt(gc.ac, 2) + ' kW وما بيتجاوز هالحد. لتزيد ألواح: ضيف انفيرتر بقدرة بين ' + fmt(gc.ac, 2) + ' و ' + fmt(gc.kw, 2) + ' kW.'
         : 'وصلت لحد الهيئة لهالاشتراك (' + ph + '): ' + gc.n + ' لوح = ' + fmt(gc.kw, 2) + ' kW × ' + gc.dc + ' DC/AC. ما بينفع تزيد ألواح بنظام مربوط على الشبكة.'); return; }
-    const n = JSON.parse(JSON.stringify(R)), want = ctl.lastC ? ctl.nextCount(Yv.n, 1) : Yv.n + 1; n.lay.fill = 'count'; n.lay.cs = Yv.single ? 2 : 0; n.lay.nMan = want;
+    const n = JSON.parse(JSON.stringify(R)), want = ctl.lastC ? ctl.nextCount(Yv.n, 1) : Yv.n + 1; n.lay.fill = 'count'; n.lay.cs = Yv.single ? 2 : 0; n.lay.nMan = want; delete n.lay.nReq;
     const fits = () => { const y = ctl.roofLayout(n); return y && y.n >= want; };
     if (!fits()) { const h0 = +n.lay.h1 || 0; let ok = false; for (let h = Math.round(h0 * 10) / 10 + 0.1; h <= 4.001; h += 0.1) { n.lay.h1 = Math.round(h * 10) / 10; if (fits()) { ok = true; break; } }
       if (!ok) { setRcMsg('السطح امتلأ: ما في مكان للوح زيادة حتى لو رفعنا الهيكل لـ 4 m. قلّل البعد عن التصوينة أو احذف عائق.'); return; }
@@ -369,7 +369,8 @@ export default function Roof({ ctl, part }) {
       {ctl.out.syncMsg && <div className={/⚠/.test(ctl.out.syncMsg) ? 'warn' : 'info'}>🔗 {ctl.out.syncMsg}</div>}
       {Yv.single && <div className="mute">🏗 هيكل واحد مرفوع فوق السطح: {Yv.nr} لوح فوق بعض × {Yv.tables[0].cols} عمود ({fmt(Yv.tables[0].len, 1)} × {fmt(Yv.D, 1)} m). الهيكل بيتخطى بس الأماكن اللي فيها جسم أعلى منه أو منور.</div>}
       {Yv.gridCapN > 0 && <div className="info">⚡ نظام مربوط على الشبكة: الألواح وقفت عند الحد المسموح من الهيئة لهالاشتراك ({Yv.gridCapN} لوح، {ctl.subPh() === '1ph' ? 'سنغل فيز' : '3 فاز'}). السطح بيساع أكثر، بس الزيادة ممنوعة.</div>}
-      {L.fill === 'count' && +L.nMan - (L.off || []).length > Yv.n && <div className="warn">بهالارتفاع ({fmt(+L.h1 || 0, 2)} m) السطح بيساع {Yv.n} لوح بس من {+L.nMan - (L.off || []).length}: في أجسام أعلى من الهيكل. ارفعه، أو اضغط "⬆ ارفع وكبّر فوق الأجسام".</div>}
+      {L.fill === 'count' && +L.nReq > +L.nMan && +L.nReq - (L.off || []).length > Yv.n ? <div className="warn">بهالاتجاه/الوضع السطح بيساع {Yv.n} لوح بس من {+L.nReq - (L.off || []).length}، فالتصميم نزل مؤقتاً. رجّع التدوير (أو مكان الجسم) وبيرجع العدد لحاله، أو اضغط +/− لتثبّت عدد جديد.</div>
+        : L.fill === 'count' && +L.nMan - (L.off || []).length > Yv.n && <div className="warn">بهالارتفاع ({fmt(+L.h1 || 0, 2)} m) السطح بيساع {Yv.n} لوح بس من {+L.nMan - (L.off || []).length}: في أجسام أعلى من الهيكل. ارفعه، أو اضغط "⬆ ارفع وكبّر فوق الأجسام".</div>}
       {Yv.cap > 0 && <div className="warn">السطح ما بيساع أكثر من {Yv.cap} لوح على هيكل واحد بهالارتفاع. ارفع الهيكل ليمرّ فوق الأجسام، أو احذف عوائق.</div>}
       <label className="rf-f rf-slide"><span>ارتفاع الهيكل (الحافة الأمامية) {fmt(+L.h1 || 0, 2)} m — بيغيّر الارتفاع بس، وعدد الألواح بيضل نفسه</span><input type="range" min="0" max="4" step="0.05" value={+L.h1 || 0} onChange={e => commit(n => { n.lay.h1 = +e.target.value; if (n.lay.fill === 'max') { n.lay.fill = 'count'; n.lay.nMan = Yv.n + (n.lay.off || []).length; n.lay.cs = Yv.plane ? 2 : Yv.single ? 1 : 0; } })} /></label>
       <div className="rf-row"><button className="b pri" onClick={raiseGrow} title="بيرفع الهيكل فوق أعلى جسم على السطح وبيملا كل السطح، فبيغطي مكان الأجسام">⬆ ارفع وكبّر فوق الأجسام</button>
