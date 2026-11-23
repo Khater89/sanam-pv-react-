@@ -189,7 +189,7 @@ export function PSystem({ ctl }) {
       <div className="r2"><Sel ctl={ctl} id="mount" label="نوع التركيب" options={[['roof', 'على السطح (هيكل عادي)'], ['elevated', 'على السطح — هيكل مرتفع'], ['ground', 'أرضي / مزرعة']]} />
         <Fd ctl={ctl} id="pk" label="معامل السوق (1 = نموذجي، 0.9 = أرخص 10٪)" step="0.05" /></div></div>
     <Html html={ctl.out.price || ''} />
-    {ctl.stype() === 'offgrid' && <BatCard ctl={ctl} />}
+    {(ctl.stype() === 'offgrid' || ctl.stype() === 'hybrid') && <BatCard ctl={ctl} />}
     {ctl.stype() === 'offgrid' && <OptCard ctl={ctl} />}
   </>);
 }
@@ -199,9 +199,10 @@ function BatCard({ ctl }) {
   const R = ctl.batRes, [busy, setBusy] = useState(false), go = async ap => { setBusy(true); await ctl.batBalance(ap); setBusy(false); if (ap && ctl.repData) ctl.run(); };
   const pct = x => fmt(x * 100, 1) + '%', cur = ctl.num('bN') || 1;
   return <div className="card"><h2>⚖ موازنة البطاريات <small>Battery balance — للألواح والانفيرتر الحاليين</small></h2>
+    {R && R.hyb && <div className="info">نظام هجين: كل kWh بيطلع من البطارية بيوفّر سعر الكهرباء من الشبكة ({fmt(R.tariff * 1000, 0)} فلس) ناقص اللي كان رح ينحسبلك لو انصدّر. {R.mech === 'netOn' ? 'بصافي القياس الفائض المصدّر بينحسب بنفس السعر، فالبطارية تقريباً ما بتوفر فلوس: قيمتها احتياط وقت انقطاع الكهرباء. احسب حجمها على الأحمال الحرجة وساعات الانقطاع، مش على التوفير.' : 'قيمة الكيلوواط المخزّن هون = ' + fmt(R.V * 1000, 0) + ' فلس.'} هون الأداة بتنصح بس وما بتغيّر عدد البطاريات لحالها.</div>}
     <div className="mute">بتجرب كل أحجام البنك على نفس الألواح والانفيرتر سنة كاملة، وبتختار اللي بيعطي أعلى صافي: (الطاقة المفيدة بالسنة × عمر البطارية × قيمة الكيلوواط من البديل، متل المولد) ناقص سعر البطاريات، بشرط ما تنزل التغطية الشمسية عن الحد اللي بتحطه. يعني بتزيد بطارية بس إذا بتخزّن فائض بينصرف فعلاً وبتسدّ تمنها، وما بتزيد بطاريات بتخزّن فائض بيضيع.</div>
-    <div className="rf-row" style={{ marginTop: 8 }}><label className="rf-f" style={{ maxWidth: 260 }}><span>قيمة الكيلوواط من البديل (مولد) JD</span><input type="number" step="0.01" min="0" value={ctl.f.vAlt || 0.3} onChange={e => ctl.input('vAlt', e.target.value)} /></label>
-      <label className="rf-f" style={{ maxWidth: 200 }}><span>أقل تغطية مقبولة %</span><input type="number" step="0.5" min="50" max="100" value={ctl.f.solMin || 95} onChange={e => ctl.input('solMin', e.target.value)} /></label>
+    <div className="rf-row" style={{ marginTop: 8 }}><label className="rf-f" style={{ maxWidth: 260 }} hidden={ctl.stype() === 'hybrid'}><span>قيمة الكيلوواط من البديل (مولد) JD</span><input type="number" step="0.01" min="0" value={ctl.f.vAlt || 0.3} onChange={e => ctl.input('vAlt', e.target.value)} /></label>
+      <label className="rf-f" style={{ maxWidth: 200 }} hidden={ctl.stype() === 'hybrid'}><span>أقل تغطية مقبولة %</span><input type="number" step="0.5" min="50" max="100" value={ctl.f.solMin || 95} onChange={e => ctl.input('solMin', e.target.value)} /></label>
       <label className="rf-f" style={{ maxWidth: 200 }}><span>عمر البطارية (سنة)</span><input type="number" step="1" min="1" value={ctl.f.batLife || 10} onChange={e => ctl.input('batLife', e.target.value)} /></label>
       <button className="b" disabled={busy} onClick={() => go(false)}>{busy ? 'جاري الحساب…' : '⚖ احسب'}</button>
       {R && R.best && R.best.nb !== cur && <button className="b pri" disabled={busy} onClick={() => go(true)}>طبّق {R.best.nb} وحدة</button>}</div>
@@ -209,9 +210,9 @@ function BatCard({ ctl }) {
     {R && R.best && <>
       <div className={R.best.nb === cur ? 'info' : 'warn'}>{R.best.nb === cur ? '✓ البطاريات الحالية (' + cur + ' وحدة) موزونة مع الألواح.' : 'الأوزن ' + R.best.nb + ' وحدة بدل ' + cur + '.'} بهالبنك: تغطية {pct(R.best.Y.solFrac)}، نقص {fmt(R.best.Y.eMiss, 0)} kWh، فائض ضايع {fmt(R.best.Y.eUnused, 0)} kWh بالسنة.
         {R.pvNeed && R.pvNeed < R.nMods * 0.9 ? <> <b>الألواح:</b> نفس التغطية بتطلع من حوالي {R.pvNeed} لوح بدل {R.nMods}؛ الزيادة بتضيع إلا إذا زدت أحمال نهارية.</> : null}</div>
-      <div style={{ overflowX: 'auto' }}><table className="fn-table"><thead><tr><th className="n">البطاريات</th><th className="n">kWh</th><th className="n">التغطية</th><th className="n">E_Miss kWh</th><th className="n">E_Unused kWh</th><th className="n">E_User kWh</th><th className="n">السعر JD</th><th className="n">الصافي JD</th></tr></thead>
+      <div style={{ overflowX: 'auto' }}><table className="fn-table"><thead><tr><th className="n">البطاريات</th><th className="n">kWh</th><th className="n">التغطية</th><th className="n">E_Miss kWh</th><th className="n">E_Unused kWh</th><th className="n">{R.hyb ? 'توفير من الشبكة kWh' : 'E_User kWh'}</th><th className="n">السعر JD</th><th className="n">الصافي JD</th></tr></thead>
         <tbody>{R.rows.filter(r => r.nb <= Math.max(R.best.nb, cur) + 3).map(r => <tr key={r.nb} className={r === R.best ? 'opt-best' : r.nb === cur ? 'opt-base' : ''}><td className="n">{r.nb}{r === R.best ? ' ⭐' : ''}{r.nb === cur ? ' (الحالي)' : ''}</td><td className="n">{fmt(r.kWh, 1)}</td><td className="n">{pct(r.Y.solFrac)}</td>
-          <td className="n">{fmt(r.Y.eMiss, 0)}</td><td className="n">{fmt(r.Y.eUnused, 0)}</td><td className="n">{fmt(r.Y.eUser, 0)}</td><td className="n">{fmt(r.cost, 0)}</td><td className="n">{fmt(r.net, 0)}</td></tr>)}</tbody></table></div></>}
+          <td className="n">{fmt(r.Y.eMiss, 0)}</td><td className="n">{fmt(r.Y.eUnused, 0)}</td><td className="n">{fmt(R.hyb ? r.gain : r.Y.eUser, 0)}</td><td className="n">{fmt(r.cost, 0)}</td><td className="n">{fmt(r.net, 0)}</td></tr>)}</tbody></table></div></>}
   </div>;
 }
 
