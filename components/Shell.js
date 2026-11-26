@@ -154,8 +154,8 @@ const TYPE_CARDS = [
   { k: 'offgrid', I: BatteryCharging, d: 'بدون شبكة متل مدامة. الألواح بتشحن البطاريات وبتغطي الليل.', tags: [['بدون شبكة'], ['أسوأ شهر'], ['بطاريات']] },
   { k: 'offgrid_nb', I: Sun, d: 'الأحمال من الألواح مباشرة وقت الشمس بس (مضخات، أحمال نهارية). حساب البطاريات متوقف.', tags: [['بدون شبكة'], ['نهاري بس'], ['بطاريات', 1]] }];
 export function NewProject({ ctl }) {
-  const [step, setStep] = useState(1), [name, setName] = useState(''), [client, setClient] = useState(''), [bt, setBt] = useState(''), [err, setErr] = useState('');
-  const next = () => { if (!name.trim()) return setErr('اكتب اسم المشروع'); if (!client.trim()) return setErr('اكتب اسم العميل'); setErr(''); setStep(2); };
+  const [step, setStep] = useState(1), [name, setName] = useState(''), [client, setClient] = useState(''), [bt, setBt] = useState(''), [mt, setMt] = useState(''), [err, setErr] = useState('');
+  const next = () => { if (!name.trim()) return setErr('اكتب اسم المشروع'); if (!client.trim()) return setErr('اكتب اسم العميل'); if (!mt) return setErr('حدد التركيب: على السطح ولا أرضي'); setErr(''); setStep(2); };
   return <div className="mx-auto max-w-3xl space-y-5">
     <div><h1 className="text-2xl font-extrabold tracking-tight text-slate-900">مشروع جديد</h1>
       <div className="mt-3 flex items-center gap-3 text-sm">{[['1', 'بيانات المشروع'], ['2', 'نوع النظام']].map(([n, t], i) => <div key={n} className="flex items-center gap-2">
@@ -168,11 +168,13 @@ export function NewProject({ ctl }) {
       </div>
       <div><label className="mb-1 block text-xs font-semibold text-slate-600">نوع المشروع</label>
         <div className="flex flex-wrap gap-1.5">{BTYPES.map(b => <button key={b[0]} type="button" onClick={() => setBt(bt === b[0] ? '' : b[0])} className={cn('rounded-full border px-3 py-1 text-[13px] cursor-pointer', bt === b[0] ? 'border-brand-600 bg-brand-600 text-white' : 'border-slate-200 bg-white text-slate-700 hover:border-brand-500')}>{b[1]}</button>)}</div></div>
+      <div><label className="mb-1 block text-xs font-semibold text-slate-600">التركيب * <span className="font-normal text-slate-400">(للتأكيد — حتى للبيوت)</span></label>
+        <div className="flex flex-wrap gap-1.5">{[['roof', '🏠 على السطح (Rooftop)'], ['ground', '🌾 أرضي (Ground)']].map(b => <button key={b[0]} type="button" onClick={() => setMt(b[0])} className={cn('rounded-full border px-3 py-1 text-[13px] cursor-pointer', mt === b[0] ? 'border-brand-600 bg-brand-600 text-white' : 'border-slate-200 bg-white text-slate-700 hover:border-brand-500')}>{b[1]}</button>)}</div></div>
       {err && <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 ring-1 ring-red-200">{err}</div>}
       <div className="flex justify-between"><Button variant="ghost" onClick={() => go(ctl, 'home')}>إلغاء</Button><Button onClick={next}>التالي: نوع النظام<ChevronLeft /></Button></div>
     </CardContent></Card> : <>
       <div className="text-sm text-slate-500"><b className="text-slate-800">{name}</b> · {client} <button className="ms-2 text-brand-600 hover:underline cursor-pointer" onClick={() => setStep(1)}>تعديل</button></div>
-      <div className="grid gap-4 sm:grid-cols-2">{TYPE_CARDS.map(c => <button key={c.k} onClick={() => ctl.createProject(name.trim(), client.trim(), c.k, bt)}
+      <div className="grid gap-4 sm:grid-cols-2">{TYPE_CARDS.map(c => <button key={c.k} onClick={() => ctl.createProject(name.trim(), client.trim(), c.k, bt, mt)}
         className="group rounded-xl border-2 border-slate-200 bg-white p-5 text-start transition hover:-translate-y-0.5 hover:border-brand-500 hover:shadow-lg cursor-pointer">
         <div className="flex items-center gap-3"><div className="grid size-10 place-items-center rounded-lg bg-brand-50 text-brand-600 group-hover:bg-brand-600 group-hover:text-white"><c.I className="size-5" /></div><div><div className="font-bold text-slate-900">{TYPE_INFO[c.k][0]}</div></div></div>
         <p className="mt-3 text-[13px] leading-relaxed text-slate-500">{c.d}</p>
