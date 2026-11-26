@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { LayoutDashboard, FolderKanban, Plus, Database, Search, LogIn, User, Sun, Zap, BatteryCharging, Gauge, ChevronLeft, Trash2, ExternalLink, Filter, Save, Copy, Download, Upload, Printer, Check, MapPin } from 'lucide-react';
+import { LayoutDashboard, FolderKanban, Plus, Database, Search, LogIn, User, Sun, Zap, BatteryCharging, Gauge, ChevronLeft, Trash2, ExternalLink, Filter, Save, Copy, Download, Upload, Printer, Check, MapPin, Undo2 } from 'lucide-react';
 import { fmt, CITIES, STATUS, statusOf, TYPE_INFO, BTYPES } from '@/lib/controller';
 import { Button, Card, CardHeader, CardTitle, CardContent, Badge, Input, NativeSelect, Table, Stat, Tabs, TabsList, TabsTrigger } from './ui-kit';
 import { readFile } from './ui';
@@ -184,8 +184,10 @@ export function NewProject({ ctl }) {
 }
 
 /* ---------- project detail: header + tabs (work-order details style) ---------- */
-const STEPS = [['1', 'المشروع والموقع'], ['2', 'الاتجاه'], ['5', 'الاستهلاك والتعرفة'], ['3', 'النظام والـ Strings'], ['4', 'الخسائر'], ['6', 'المحاكاة والتقرير'], ['8', 'التصميم الكلي']];
+const STEPS = [['1', 'المشروع والموقع'], ['5', 'الاستهلاك والتعرفة'], ['2', 'الاتجاه والرسم'], ['3', 'النظام والـ Strings'], ['4', 'الخسائر'], ['6', 'المحاكاة والتقرير'], ['8', 'التصميم الكلي']];
 export function ProjectHeader({ ctl }) {
+  useEffect(() => { const k = e => { if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) { const t = e.target, tag = t && t.tagName; if (tag === 'INPUT' || tag === 'TEXTAREA') return; e.preventDefault(); ctl.undo(); } };
+    window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [ctl]);
   const st = ctl.f.status && STATUS[ctl.f.status] ? ctl.f.status : (ctl.kwpNow() ? 'designed' : 'draft'), done = ctl.steps();
   const kv = [['قدرة الألواح', ctl.kwpNow() ? fmt(ctl.kwpNow(), 2) + ' kWp' : '—'], ['الانفيرتر', ctl.num('iP') ? fmt((ctl.num('nInv') || 1) * ctl.num('iP'), 2) + ' kW' : '—'],
     ['البطاريات (صافي / اسمي)', ctl.batNet() && ctl.num('bN') ? fmt(ctl.batNet().net, 1) + ' / ' + fmt(ctl.batNet().nom, 1) + ' kWh' : '—'], ['الطور', ctl.isOff() ? (ctl.f.iPh === '1ph' ? 'سنغل فيز' : '3 فاز') : (ctl.subPh() === '1ph' ? 'سنغل فيز' : '3 فاز')], ['الموقع', cityName(ctl.f.city)]];
@@ -202,6 +204,7 @@ export function ProjectHeader({ ctl }) {
         </div>
       </div>
       <div className="flex flex-wrap gap-2">
+        <Button variant="outline" disabled={!ctl.canUndo()} title="تراجع عن آخر حركة (Ctrl+Z)" onClick={() => ctl.undo()}><Undo2 />تراجع</Button>
         <Button onClick={() => ctl.projSave(false)}><Save />حفظ</Button>
         <Button variant="outline" onClick={() => ctl.projSave(true)}><Copy />نسخة</Button>
         <Button variant="outline" onClick={() => ctl.downloadJSON()}><Download />JSON</Button>

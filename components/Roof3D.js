@@ -162,7 +162,11 @@ export default function Roof3D({ R, img, Y, sun, sel, onSelect, onMove, tool = '
         if (!T) return; const e = ST.e, SL = Y.S;
         for (let k = 0; k < T.nf; k++) { const u = t.u0 + ST.ov + k * T.sp; if (u > t.u1 + 0.01) break;
           const r0 = P3(t, u, -0.03, -0.05), r1 = P3(t, u, SL + 0.02, -0.05); bar(r0, r1, 0.06, steel); // rafter
-          (ST.legsS || [e, SL - e]).forEach(sd => bar(W3(u, t.vF - sd * cb, 0), P3(t, u, sd, -0.05), 0.06, steel)); } // columns only: simple frame (columns → rafter → purlins → modules)
+          const Ls = ST.legsS || [e, SL - e], Lh = ST.legH || [];
+          Ls.forEach(sd => bar(W3(u, t.vF - sd * cb, 0), P3(t, u, sd, -0.05), 0.06, steel)); // columns → rafter → purlins → modules
+          for (let q = 0; q + 1 < Ls.length; q++) bar(W3(u, t.vF - Ls[q] * cb, 0.1), W3(u, t.vF - Ls[q + 1] * cb, (Lh[q + 1] || 1) * 0.8), 0.035, steel); // diagonal in the frame
+          if ((T.xb || []).indexOf(k) >= 0) [Ls[0], Ls[Ls.length - 1]].forEach((sd, q) => { const zt = (q ? (Lh[Lh.length - 1] || 1) : (Lh[0] || 1)) * 0.85, v = t.vF - sd * cb; // X-brace to the next frame
+            bar(W3(u, v, 0.1), W3(u + T.sp, v, zt), 0.03, steel); bar(W3(u + T.sp, v, 0.1), W3(u, v, zt), 0.03, steel); }); }
         const rows = Math.max(1, Y.nr); for (let j = 0; j < rows; j++) [0.25, 0.75].forEach(fr => { const sd = j * (Y.mS + (Y.nr > 1 ? gp : 0)) + fr * Y.mS; bar(P3(t, t.u0 - 0.05, sd, -0.015), P3(t, t.u1 + 0.05, sd, -0.015), 0.04, railM); }); }); }
     // camera target and shadow box
     S.ctr.target.set(cx, 0, -cy); const sc = S.sunL.shadow.camera, ext = span * 1.6; sc.left = -ext; sc.right = ext; sc.top = ext; sc.bottom = -ext; sc.near = 0.5; sc.far = span * 12; sc.updateProjectionMatrix();

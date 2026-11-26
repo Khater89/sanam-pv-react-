@@ -7,7 +7,7 @@ import { OBJ_PRESETS, presetOf, guessKind, rectPts } from '@/lib/engine/objects'
 import dynamic from 'next/dynamic';
 const load3D = () => import('./Roof3D');
 const Roof3D = dynamic(load3D, { ssr: false, loading: () => <div className="rf-3d mute" style={{ height: 520, display: 'grid', placeItems: 'center' }}>جاري تحميل العرض الثلاثي الأبعاد…</div> });
-import { fmt } from '@/lib/controller';
+import { fmt, CITIES } from '@/lib/controller';
 import { Component } from 'react';
 
 /* any 3D failure (old page after a site update → missing file, no WebGL, a bad shape) stays inside this box instead of taking the whole page down */
@@ -29,7 +29,7 @@ class Safe3D extends Component {
   }
 }
 
-const MODES_AZ = [['pan', '✋ تحريك'], ['wand', '🪄 كشف السطح من الصورة'], ['roof', '⬠ رسم السطح'], ['bld', '🏢 جسم/غرفة'], ['tree', '🌳 شجرة'], ['edge', '📐 حافة الاتجاه'], ['scale', '📏 مقياس الرسم'], ['move', '↔ تعديل/إضافة نقاط'], ['del', '🗑 حذف']];
+const MODES_AZ = [['pan', '✋ تحريك'], ['loc', '📍 حدد الموقع'], ['wand', '🪄 كشف السطح من الصورة'], ['roof', '⬠ رسم السطح'], ['bld', '🏢 جسم/غرفة'], ['tree', '🌳 شجرة'], ['edge', '📐 حافة الاتجاه'], ['scale', '📏 مقياس الرسم'], ['move', '↔ تعديل/إضافة نقاط'], ['del', '🗑 حذف']];
 const MODES_SH = [['pan', '✋ تحريك'], ['bld', '🏢 مبنى/غرفة'], ['tree', '🌳 شجرة'], ['drop', '⬇ نزول الكوابل (الدرج)'], ['inv', '🔌 مكان الانفيرتر'], ['move', '↔ تعديل/إضافة نقاط'], ['del', '🗑 حذف']];
 const M_LAT = 110574, mLon = lat => 111320 * Math.cos(lat * Math.PI / 180);
 
@@ -64,6 +64,7 @@ function downscale(file, max) { return new Promise((res, rej) => { const fr = ne
 export default function Roof({ ctl, part }) {
   const AZ = part !== 'shade', MODES = AZ ? MODES_AZ : MODES_SH;
   const R0 = ctl.roof() || RF.blankRoof(), [mode, setMode] = useState(AZ && R0.pts.length < 3 ? 'roof' : 'pan'), [draft, setDraft] = useState([]), [hover, setHover] = useState(null);
+  const [locQ, setLocQ] = useState(''), [siteA, setSiteA] = useState(''), [altOpen, setAltOpen] = useState(false);
   const [rcMsg, setRcMsg] = useState(''), [qAdd, setQAdd] = useState(1), [secS, setSecS] = useState(null), [tool3, setTool3] = useState('select'), [gimg, setGimg] = useState(true), [pick, setPick] = useState(null), nPrev = useRef(null), [nDelta, setNDelta] = useState(0), [view3, setView3] = useState(false), [sh, setSh] = useState({ on: 1, doy: 355, hr: 10 }), [full, setFull] = useState(false), [v, setV] = useState({ cx: 0, cy: 0, s: 12 }), [sel, setSel] = useState(null), [rect, setRect] = useState({ a: 20, b: 12, r: 0 }), [shd, setShd] = useState(null), [busy, setBusy] = useState(false);
   const svg = useRef(null), drag = useRef(null), Wpx = 900, Hpx = 520, R = R0, L = R.lay;
   const I = ctl.f.roofImg && R.img ? R.img : null, [sc, setSc] = useState([]), [scD, setScD] = useState(''), [tol, setTol] = useState(32), [vmsg, setVmsg] = useState('');
@@ -127,6 +128,17 @@ export default function Roof({ ctl, part }) {
   const rectFrom = (p0, p1) => { const rot = roofRot(), a = rot * Math.PI / 180, c = Math.cos(a), s2 = Math.sin(a), loc = p => [p[0] * c - p[1] * s2, p[0] * s2 + p[1] * c];
     const A = loc(p0), B = loc(p1), m = [(A[0] + B[0]) / 2, (A[1] + B[1]) / 2], cx = m[0] * c + m[1] * s2, cy = -m[0] * s2 + m[1] * c;
     return { cx: Math.round(cx * 100) / 100, cy: Math.round(cy * 100) / 100, w: Math.max(0.2, Math.round(Math.abs(B[0] - A[0]) * 100) / 100), l: Math.max(0.2, Math.round(Math.abs(B[1] - A[1]) * 100) / 100), rot: Math.round(rot * 10) / 10 }; };
+  /* pick the site on the satellite map: the clicked point becomes the project location (lat/lon) and the drawing's origin, so the drawing stays on the same ground */
+  const setLocAt = p => { if (lat == null || lon == null) return; const la = lat + p[1] / M_LAT, lo = lon + p[0] / mLon(lat), mi = CITIES.length - 1;
+    ctl.input('city', String(mi)); ctl.input('lat', la.toFixed(6)); ctl.input('lon', lo.toFixed(6));
+    const sh = q => [Math.round((q[0] - p[0]) * 100) / 100, Math.round((q[1] - p[1]) * 100) / 100];
+    commit(n => { n.pts = n.pts.map(sh); n.bld.forEach(b => { b.pts = (b.pts || []).map(sh); if (b.rect) { b.rect.cx -= p[0]; b.rect.cy -= p[1]; } }); n.trees.forEach(t => { const q = sh([t.x, t.y]); t.x = q[0]; t.y = q[1]; });
+      if (n.lay.invPos) n.lay.invPos = sh(n.lay.invPos); if (n.lay.dbPos) n.lay.dbPos = sh(n.lay.dbPos); n.map = { ...(n.map || {}), on: 1 }; });
+    setV(o => ({ ...o, cx: 0, cy: 0 })); setVmsg('📍 الموقع صار ' + la.toFixed(5) + ', ' + lo.toFixed(5) + ' — الرسمة ضلت على نفس المكان.'); setMode('pan'); };
+  const findPlace = async () => { const q = (locQ || '').trim(); if (!q) return; const mm = q.match(/(-?\d+\.\d+)\s*[, ]\s*(-?\d+\.\d+)/);
+    try { let la, lo; if (mm) { la = +mm[1]; lo = +mm[2]; } else { const r = await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=jo&q=' + encodeURIComponent(q)).then(x => x.json()); if (!r || !r[0]) return setVmsg('ما لقيت "' + q + '". جرّب اسم منطقة أو احداثيات lat, lon.'); la = +r[0].lat; lo = +r[0].lon; }
+      ctl.input('city', String(CITIES.length - 1)); ctl.input('lat', la.toFixed(6)); ctl.input('lon', lo.toFixed(6)); commit(n => { n.map = { ...(n.map || {}), on: 1 }; }); setV(o => ({ ...o, cx: 0, cy: 0, s: Math.max(o.s, 4) }));
+      setVmsg('📍 رحت على ' + la.toFixed(5) + ', ' + lo.toFixed(5) + '. حرّك الخريطة، واضغط "📍 حدد الموقع" على المبنى بالضبط.'); } catch (e) { setVmsg('ما قدرت أبحث: ' + e.message); } };
   const down = e => { e.currentTarget.setPointerCapture(e.pointerId); const p = toW(e); const vt = mode === 'move' ? nearVert(p, 12) : null, ob = mode === 'move' && !vt ? objAt(p) : null; drag.current = { x: e.clientX, y: e.clientY, cx: v.cx, cy: v.cy, moved: false, vert: vt, obj: ob, p0: p, R0: ob ? JSON.parse(JSON.stringify(R)) : null, box: mode === 'bld' && !draft.length }; };
   const move = e => { const p = toW(e); setHover(ortho(p, e)); const d = drag.current; if (!d) return; const dx = e.clientX - d.x, dy = e.clientY - d.y; if (Math.hypot(dx, dy) > 4) d.moved = true; if (!d.moved) return;
     if (d.box) { setBrect(rectFrom(d.p0, p)); return; }
@@ -142,6 +154,7 @@ export default function Roof({ ctl, part }) {
     if (mode === 'roof' || mode === 'bld') { if (draft.length >= 3 && Math.hypot(p[0] - draft[0][0], p[1] - draft[0][1]) * v.s < 12) return finish(); setDraft(draft.concat([p])); }
     else if (mode === 'tree') { commit(n => { const inR = n.pts.length > 2 && RF.inside(n.pts, p[0], p[1]); n.trees.push({ x: p[0], y: p[1], r: 2, h: 5, tr: 20, ref: inR ? 'roof' : 'ground', hg: inR ? '' : (+n.hb || 0) + 5 }); fixH(n); }); setVmsg('🌳 انضافت شجرة. عدّل ارتفاعها ونصف قطرها بجدول الأجسام والارتفاعات تحت.'); }
     else if (mode === 'inv') commit(n => { n.lay.invPos = p; });
+    else if (mode === 'loc') setLocAt(p);
     else if (mode === 'scale') { const vt = nearVert(p, 12), q = vt ? (vt.kind === 'roof' ? R.pts[vt.j] : vt.kind === 'bld' ? R.bld[vt.i].pts[vt.j] : p) : p;
       if (!vt && sc.length !== 1) { const e = nearEdge(p); if (e) { setSc([e.a, e.b]); return; } }
       setSc(sc.length >= 2 ? [q] : sc.concat([q])); }
@@ -351,12 +364,25 @@ export default function Roof({ ctl, part }) {
     const n = JSON.parse(JSON.stringify(R)), want = ctl.lastC ? ctl.nextCount(Yv.n, 1) : Yv.n + 1; n.lay.fill = 'count'; n.lay.cs = Yv.single ? 2 : 0; n.lay.nMan = want; delete n.lay.nReq;
     const fits = () => { const y = ctl.roofLayout(n); return y && y.n >= want; };
     if (!fits()) { const h0 = +n.lay.h1 || 0; let ok = false; for (let h = Math.round(h0 * 10) / 10 + 0.1; h <= ctl.hLim(R).f + 0.001; h += 0.1) { n.lay.h1 = Math.round(h * 10) / 10; if (fits()) { ok = true; break; } }
-      if (!ok) { setRcMsg('السطح امتلأ: ما في مكان للوح زيادة حتى لو رفعنا الهيكل لـ ' + ctl.hLim(R).f + ' m (حد الارتفاع). قلّل البعد عن التصوينة أو احذف عائق.'); return; }
+      if (!ok) { // the next equal-strings count is bigger than the roof: take the biggest equal-strings count that still fits between now and the roof capacity
+        n.lay.h1 = h0; const nm = JSON.parse(JSON.stringify(n)); nm.lay.fill = 'max'; delete nm.lay.nMan; const capY = ctl.roofLayout(nm), cap = capY ? capY.n : Yv.n; let alt = 0;
+        if (ctl.lastC) for (let N = cap; N > Yv.n; N--) { const b = ctl.pickCfg(N); if (b && b.a.nModules === N) { alt = N; break; } }
+        if (alt) { n.lay.nMan = alt; setRcMsg('✓ زدت لـ ' + alt + ' لوح: هاد أكبر عدد بيعطي strings متساوية وبيساعه السطح (السطح بيساع ' + cap + ' مكان).'); commit(x => { x.lay = n.lay; }); return; }
+        setRcMsg('السطح بيساع ' + cap + ' مكان بس، وأقرب عدد بيعطي strings متساوية بعد ' + Yv.n + ' هو ' + want + ' لوح (أكبر من السطح، حتى لو رفعنا الهيكل لـ ' + ctl.hLim(R).f + ' m). قلّل البعد عن التصوينة، احذف عائق، أو غيّر اللوح.'); return; }
       setRcMsg('✓ رفعت الهيكل لـ ' + n.lay.h1 + ' m ليمرّ فوق جسم ويتسع لوح زيادة.'); }
     commit(x => { x.lay = n.lay; }); }
   /* raise-and-grow: lift the structure just above the tallest object on the roof and fill the whole roof, so the modules cover the objects' places */
   const HL = ctl.hLim(R), growH = Math.min(HL.f, Math.max(+L.h1 || 0, R.bld.filter(b => b.ref !== 'ground' && b.kind !== 'opening' && b.kind !== 'keepout' && !(b.block)).reduce((a, b) => Math.max(a, +b.h || 0), 0) + 0.3));
   const raiseGrow = () => { setRcMsg(''); commit(n => { n.lay.h1 = Math.round(growH * 20) / 20; n.lay.fill = 'max'; delete n.lay.nMan; n.lay.cs = 0; }); };
+  /* the same module count in other array shapes (one / several tables, portrait / landscape, low / raised over the objects): the user picks */
+  const altPanel = Yv && Yv.n && ctl.lastC ? <div className="rf-box"><h4>📐 أشكال بديلة لنفس العدد ({ctl.lastC.nModules} لوح) <button className="sm" onClick={() => setAltOpen(!altOpen)}>{altOpen ? 'إخفاء' : 'اعرض الاقتراحات'}</button></h4>
+    {!altOpen ? <div className="mute">طاولة وحدة، أو كذا طاولة، طولي أو عرضي، واطي أو مرفوع فوق الأجسام: بقارنهم بوزن الحديد وبتختار.</div> : (() => { const A = ctl.layoutAlts(), curK = [Yv.tables.length, Yv.nr, L.orient || 'P', Yv.single ? 1 : 0].join('|');
+      if (!A.length) return <div className="mute">ما في شكل ثاني بيساع كل الألواح ضمن حدود الارتفاع.</div>;
+      return <div className="rf-alts">{A.map((o, i) => { const on = o.key.indexOf(curK + '|') === 0 && Math.abs(o.lay.h1 - (+L.h1 || 0)) < 0.06; return <div key={o.key} className={'rf-alt' + (on ? ' on' : '')}>
+        <div dangerouslySetInnerHTML={{ __html: RF.planSVG(o.R, o.Y, { w: 300, labels: false }) }} />
+        <b>{i === 0 ? '⭐ ' : ''}{o.Y.single ? 'طاولة وحدة' : o.tables + ' طاولات (ARRAYS)'}{o.over ? ' — مرفوعة فوق الأجسام' : ''}</b>
+        <div className="mute">{o.lay.orient === 'L' ? 'عرضي' : 'طولي'} · {o.Y.nr} لوح فوق بعض · أمامية {fmt(o.Y.h1, 2)} / خلفية {fmt(o.rear, 2)} m · حديد {fmt(o.kg, 0)} kg</div>
+        {on ? <span className="okc">✓ الحالي</span> : <button className="sm" onClick={() => ctl.useAlt(o)}>اختار هاد الشكل</button>}</div>; })}</div>; })()}</div> : null;
   const stPanel = Yv && Yv.n ? (() => { const STv = RF.structure(Yv, L), SE = ctl.structEcon(Yv, STv), hr = Yv.h1 + Yv.S * Math.sin(Yv.b), T0 = Yv.tables[0];
     return <div className="rf-box rf-st"><h4>🏗 الألواح والهيكل الحديدي <small className="mute">أبعاد حقيقية من الداتا شيت</small></h4>
       <div className="rf-row">
@@ -446,12 +472,14 @@ export default function Roof({ ctl, part }) {
   return <div className="roofed">
     <div className="rf-bar">{MODES.map(([k, l]) => <button key={k} className={mode === k ? 'on' : ''} onClick={() => { setMode(k); setDraft([]); if (k === 'scale') setSecS('img'); }}>{l}</button>)}
       <span className="rf-sp" />
+      {AZ && <span className="rf-loc"><input dir="auto" value={locQ} onChange={e => setLocQ(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') findPlace(); }} placeholder="ابحث عن منطقة أو lat, lon" /><button onClick={findPlace}>🔎</button></span>}
+      <button disabled={!ctl.canUndo()} onClick={() => ctl.undo()} title="تراجع (Ctrl+Z)">↶ تراجع</button>
       <label className="rf-ck"><input type="checkbox" checked={!!(R.map && R.map.on)} onChange={e => commit(n => { n.map = { ...(n.map || {}), on: e.target.checked ? 1 : 0 }; })} /> صورة القمر الصناعي</label>
       <button onClick={() => { setView3(true); setTool3(R.pts.length > 2 ? 'push' : 'rect'); }}>📐 رسم زي SketchUp</button>
       {R.pts.length > 2 && <button onClick={dlRuby} title="SketchUp: Window → Ruby Console → load">⬇ SketchUp (Ruby)</button>}
       <button className={view3 ? 'on' : ''} onClick={() => setView3(!view3)}>{view3 ? '🗺 رجوع للرسمة 2D' : '🧊 عرض ثلاثي الأبعاد 3D'}</button>
       <button onClick={() => setV(o => ({ ...o, s: o.s * 1.3 }))}>＋</button><button onClick={() => setV(o => ({ ...o, s: o.s / 1.3 }))}>－</button></div>
-    <div className="rf-hint">{mode === 'del' ? 'اضغط على نقطة زاوية لحذفها، أو جوّا جسم أو شجرة لحذفها.' : mode === 'move' ? 'اسحب أي نقطة لتحرّكها، أو اضغط على ضلع لتضيف نقطة جديدة عليه.' : mode === 'drop' ? 'اضغط مكان نزول الكوابل من السطح (الدرج أو الشفت). منه بنحسب الطريق لغرفة الكهرباء.' : mode === 'wand' ? 'اضغط بنص السطح بالصورة: الأداة بتلقى حدود السطح والأجسام اللي عليه (خزانات، بيت درج، مكيفات) لحالها. إذا طلع أكبر أو أصغر غيّر التسامح.' : mode === 'scale' ? 'اضغط على ضلع معروف طوله (أو نقطتين — بتلتصق بالزوايا)، واكتب الطول الحقيقي. الأداة بتكبّر أو بتصغّر الرسمة كلها بنفس النسبة.' : mode === 'roof' || mode === 'bld' ? (mode === 'bld' ? 'اسحب مستطيل فوق الجسم (بينحاذى مع حافة السطح) — أسرع طريقة للخزانات والغرف. أو ارسمه نقطة نقطة: ' : '') + 'اضغط لتضيف نقاط الزوايا، وارجع اضغط على أول نقطة (أو Enter) لتسكّر الشكل. Shift = خطوط مستقيمة 90°. Esc يلغي.' : mode === 'inv' ? 'اضغط مكان الانفيرتر (أو نقطة نزول الكوابل من السطح). منه بتنحسب أطوال كوابل الـ DC.' : mode === 'tree' ? 'اضغط مكان الشجرة، وبعدين عدّل نصف القطر والارتفاع من القائمة تحت.' : mode === 'edge' ? 'اضغط على حافة السطح اللي بدك الصفوف تكون موازية إلها، والأداة بتحسب الـ Azimuth لحالها.' : mode === 'move' ? 'اسحب أي نقطة لتعدّلها.' : 'اسحب لتحرك الخريطة، وعجلة الماوس للتكبير.'}
+    <div className="rf-hint">{mode === 'loc' ? 'شغّل صورة القمر الصناعي، حرّك الخريطة لمكان المبنى أو الأرض، واضغط عليه: بيصير هو موقع المشروع (الإحداثيات ومركز الرسمة).' : mode === 'del' ? 'اضغط على نقطة زاوية لحذفها، أو جوّا جسم أو شجرة لحذفها.' : mode === 'move' ? 'اسحب أي نقطة لتحرّكها، أو اضغط على ضلع لتضيف نقطة جديدة عليه.' : mode === 'drop' ? 'اضغط مكان نزول الكوابل من السطح (الدرج أو الشفت). منه بنحسب الطريق لغرفة الكهرباء.' : mode === 'wand' ? 'اضغط بنص السطح بالصورة: الأداة بتلقى حدود السطح والأجسام اللي عليه (خزانات، بيت درج، مكيفات) لحالها. إذا طلع أكبر أو أصغر غيّر التسامح.' : mode === 'scale' ? 'اضغط على ضلع معروف طوله (أو نقطتين — بتلتصق بالزوايا)، واكتب الطول الحقيقي. الأداة بتكبّر أو بتصغّر الرسمة كلها بنفس النسبة.' : mode === 'roof' || mode === 'bld' ? (mode === 'bld' ? 'اسحب مستطيل فوق الجسم (بينحاذى مع حافة السطح) — أسرع طريقة للخزانات والغرف. أو ارسمه نقطة نقطة: ' : '') + 'اضغط لتضيف نقاط الزوايا، وارجع اضغط على أول نقطة (أو Enter) لتسكّر الشكل. Shift = خطوط مستقيمة 90°. Esc يلغي.' : mode === 'inv' ? 'اضغط مكان الانفيرتر (أو نقطة نزول الكوابل من السطح). منه بتنحسب أطوال كوابل الـ DC.' : mode === 'tree' ? 'اضغط مكان الشجرة، وبعدين عدّل نصف القطر والارتفاع من القائمة تحت.' : mode === 'edge' ? 'اضغط على حافة السطح اللي بدك الصفوف تكون موازية إلها، والأداة بتحسب الـ Azimuth لحالها.' : mode === 'move' ? 'اسحب أي نقطة لتعدّلها.' : 'اسحب لتحرك الخريطة، وعجلة الماوس للتكبير.'}
       {!lat && <b className="bad"> · حدد إحداثيات الموقع بتبويب 1 عشان تظهر صورة القمر الصناعي.</b>}</div>
     {AZ && I && <div className="rf-steps">{[['1', 'المقياس', !!R.cal || I.mpp !== 0.05, 'scale'], ['2', 'حدود السطح بالخطوط', R.pts.length > 2, 'roof'], ['3', 'الأجسام والمباني المجاورة', R.bld.length + R.trees.length > 0, 'bld'], ['4', 'الارتفاعات (تحت)', R.bld.length + R.trees.length > 0 && (!R.bld.concat(R.trees).some(o => o.ref === 'ground') || +R.hb > 0), null]].map(([k, l, ok, m]) =>
       <button key={k} className={'rf-step' + (ok ? ' ok' : '')} onClick={() => { if (m) { setMode(m); setDraft([]); } setSecS(m === 'scale' ? 'img' : m === 'bld' ? 'objs' : 'roof'); }}><b>{ok ? '✓' : k}</b> {l}</button>)}</div>}
@@ -465,6 +493,7 @@ export default function Roof({ ctl, part }) {
       {(() => { const st = v.s > 20 ? 1 : v.s > 6 ? 5 : 10, L2 = []; for (let x = Math.ceil(view[0] / st) * st; x < view[2]; x += st) L2.push(<line key={'x' + x} x1={SX(x)} x2={SX(x)} y1="0" y2={Hpx} stroke="#fff" strokeOpacity={T.length ? 0.12 : 0.7} />);
         for (let y = Math.ceil(view[1] / st) * st; y < view[3]; y += st) L2.push(<line key={'y' + y} y1={SY(y)} y2={SY(y)} x1="0" x2={Wpx} stroke="#fff" strokeOpacity={T.length ? 0.12 : 0.7} />); return L2; })()}
       {R.pts.length > 2 && <polygon points={pp(R.pts)} fill="#fff" fillOpacity={T.length || I ? 0.22 : 0.9} stroke="#0f172a" strokeWidth={+R.hp > 0 ? 4 : 2} />}
+      {R.pts.length > 2 && (() => { const c = R.pts.reduce((q, p) => [q[0] + p[0] / R.pts.length, q[1] + p[1] / R.pts.length], [0, 0]); return <text x={SX(c[0])} y={SY(c[1]) - 26} textAnchor="middle" className="rf-dim" pointerEvents="none" style={{ fontWeight: 700, fontSize: 13, paintOrder: 'stroke', stroke: '#fff', strokeWidth: 4 }}>{ctl.f.mount === 'ground' ? 'مساحة الموقع' : 'مساحة السطح'} {fmt(Math.abs(RF.area(R.pts)), 1)} m²{R.cal || (I && I.calOK) ? ' ✓' : ''}</text>; })()}
       {R.pts.length > 2 && L.azMode === 'edge' && (() => { const i = Math.min(L.edge || 0, R.pts.length - 1), a = R.pts[i], b = R.pts[(i + 1) % R.pts.length]; return <line x1={SX(a[0])} y1={SY(a[1])} x2={SX(b[0])} y2={SY(b[1])} stroke="#16a34a" strokeWidth="6" strokeOpacity=".8" />; })()}
       {R.pts.length > 2 && R.pts.map((a, i) => { const b = R.pts[(i + 1) % R.pts.length]; return <text key={i} x={(SX(a[0]) + SX(b[0])) / 2} y={(SY(a[1]) + SY(b[1])) / 2 - 6} className="rf-dim">{fmt(RF.len(a, b), 2)} m</text>; })}
       {R.bld.map((b, i) => <g key={i} onClick={() => setSel(['bld', i])}><polygon points={pp(b.pts)} fill={sel && sel[0] === 'bld' && sel[1] === i ? '#f59e0b' : b.ref === 'ground' ? '#334155' : '#64748b'} fillOpacity=".5" stroke={sel && sel[0] === 'bld' && sel[1] === i ? '#b45309' : '#334155'} strokeWidth={sel && sel[0] === 'bld' && sel[1] === i ? 3 : 1.5} /><text x={SX(b.pts[0][0])} y={SY(b.pts[0][1]) - 4} className="rf-dim">{b.name} · {b.h}m</text>
@@ -518,6 +547,9 @@ export default function Roof({ ctl, part }) {
       <div className="rf-box"><h4>السطح</h4>
         <div className="rf-row">{num('طول السطح m', rect.a, x => setRect({ ...rect, a: x }), 0.1)}{num('عرض السطح m', rect.b, x => setRect({ ...rect, b: x }), 0.1)}{num('دوران عن الشمال °', rect.r, x => setRect({ ...rect, r: x }), 1)}</div>
         <button className="sm" onClick={quickRect}>⬛ ارسم سطح مستطيل بهالأبعاد</button>
+        <div className="rf-row">{num('أو مساحة الموقع m²', siteA, x => setSiteA(x), 1, 150)}<button className="sm" onClick={() => { const A = +siteA; if (!(A > 0)) return; const k = (+rect.a > 0 && +rect.b > 0) ? +rect.a / +rect.b : 1.5, a = Math.round(Math.sqrt(A * k) * 100) / 100, b = Math.round(A / a * 100) / 100; setRect({ ...rect, a, b });
+          const r = (+rect.r || 0) * Math.PI / 180, c = Math.cos(r), sn = Math.sin(r), ha = a / 2, hb2 = b / 2; commit(n => { n.pts = [[-ha, -hb2], [ha, -hb2], [ha, hb2], [-ha, hb2]].map(([x, y]) => [Math.round((x * c + y * sn) * 100) / 100, Math.round((-x * sn + y * c) * 100) / 100]); n.lay.edge = 0; }); setV({ cx: 0, cy: 0, s: Math.min(Wpx / (a + 8), Hpx / (b + 8)) }); }}>⬛ ارسم موقع بهالمساحة</button>
+          <span className="mute">بنفس نسبة الطول للعرض فوق ({fmt(+rect.a / +rect.b || 1.5, 2)}).</span></div>
         <div className="mute">السطح: {fmt(Math.abs(RF.area(R.pts)), 1)} m² · {R.pts.length} زوايا {R.pts.length > 2 && <button className="sm" onClick={() => commit(n => { n.pts = []; })}>مسح السطح</button>}</div>
       </div>
     </div>{obsBox}</div>}
@@ -526,7 +558,7 @@ export default function Roof({ ctl, part }) {
       {R.trees.map((t2, i) => <span key={'t' + i} className="rf-chip">🌳 {i + 1} · {t2.h} m <button onClick={() => commit(n => { n.trees.splice(i, 1); })}>×</button></span>)}
       <button className="sm" onClick={() => commit(n => { n.bld = []; n.trees = []; })}>حذف كل الأجسام</button></div>}
     </div>}
-    {sec === 'mods' && <div className="rf-secb">{!view3 && R.pts.length > 2 && tableRot}{stPanel}<div className="rf-grid">
+    {sec === 'mods' && <div className="rf-secb">{!view3 && R.pts.length > 2 && tableRot}{stPanel}{altPanel}<div className="rf-grid">
       <div className="rf-box"><h4>الاتجاه (Azimuth)</h4>
         <select value={L.azMode} onChange={e => set('azMode', e.target.value)}><option value="edge">موازي لحافة السطح المختارة (الخضرا)</option><option value="south">جنوب تماماً (0°)</option><option value="manual">يدوي</option></select>
         {L.azMode === 'manual' && num('Azimuth °', L.az, x => set('az', x), 0.5)}

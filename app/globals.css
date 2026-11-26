@@ -309,3 +309,9 @@ html[dir=ltr] select{background-position:right 9px top 55%,right 14px top 55%;pa
 .rf-secn{display:inline-block;min-width:20px;margin-inline-start:6px;padding:0 6px;border-radius:999px;background:#dbeafe;color:#1d4ed8;font-size:11px}
 .rf-secb{border:1px solid #cbd5e1;border-top:0;border-radius:0 0 12px 12px;padding:10px 12px;background:#fff}
 .rf-q{min-width:auto}
+
+.rf-alts{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px;margin-top:8px}
+.rf-alt{border:1px solid #e2e8f0;border-radius:10px;padding:8px;background:#fff;display:flex;flex-direction:column;gap:4px}
+.rf-alt.on{border-color:#2563eb;box-shadow:0 0 0 2px #bfdbfe}
+.rf-alt svg{width:100%;height:auto;max-height:200px}
+.rf-loc{display:inline-flex;gap:2px}.rf-loc input{width:190px;border:1px solid #cbd5e1;border-radius:6px;padding:3px 6px;font-size:12px}

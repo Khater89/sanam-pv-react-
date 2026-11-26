@@ -7,6 +7,14 @@ import { HELP } from '@/lib/help';
 import Roof, { FullDesign } from './Roof';
 export { FullDesign };
 
+/* system size typed before any drawing: the tool builds the closest real design (modules, strings, inverter) and the roof follows when drawn */
+function KwpCard({ ctl }) { const [kw, setKw] = useState(''), [msg, setMsg] = useState('');
+  return <div className="card"><h2>⚡ حجم النظام المطلوب <small>Target size</small></h2>
+    <div className="r2"><label>kWp<input type="number" step="0.1" min="0" value={kw} onChange={e => setKw(e.target.value)} placeholder={ctl.kwpNow() ? fmt(ctl.kwpNow(), 2) : 'مثلاً 20'} onKeyDown={e => { if (e.key === 'Enter') setMsg(ctl.designKWp(kw).msg); }} /></label>
+      <button className="b pri" style={{ alignSelf: 'end' }} onClick={() => setMsg(ctl.designKWp(kw).msg)}>صمّم على هالحجم</button></div>
+    <div className="mute" style={{ marginTop: 6 }}>اكتب الحجم قبل الرسم، والبرنامج بيختار عدد الألواح والـ strings والانفيرتر. لما ترسم، الألواح بتتوزع على السطح أو الأرض.</div>
+    {msg && <div className={msg[0] === '✓' ? 'info' : 'warn'}>{msg}</div>}</div>; }
+
 /* 1 · project & site */
 export function PSite({ ctl }) {
   return (
@@ -20,6 +28,7 @@ export function PSite({ ctl }) {
         <Sel ctl={ctl} id="btype" bare options={[['', '— اختار —']].concat(BTYPES.map(b => [b[0], b[1]]))} />
         <div className="mute" style={{ marginTop: 6 }}>بيحدد فئة التعرفة الافتراضية بتبويب 3 (بتقدر تغيّرها هناك).</div>
       </div>
+      <KwpCard ctl={ctl} />
       <div className="card"><h2>الموقع الجغرافي <small>Geographical site</small></h2>
         <Sel ctl={ctl} id="city" label="الموقع" options={CITIES.map((c, i) => [String(i), c[0]])} />
         <div className="r2"><Fd ctl={ctl} id="lat" label="خط العرض (°N)" step="0.0001" /><Fd ctl={ctl} id="lon" label="خط الطول (°E)" step="0.0001" /></div>
@@ -149,6 +158,7 @@ export function PSystem({ ctl }) {
   const off = ctl.isOff();
   return (<>
     <div className="grid">
+      <KwpCard ctl={ctl} />
       <div className="card"><h2>اللوح الشمسي <small>PV module — datasheet</small></h2>
         <Picker ctl={ctl} id="modP" />
         <div className="r4"><Fd ctl={ctl} id="mP" label="Pmax W" /><Fd ctl={ctl} id="mVmp" label="Vmp V" step="0.01" /><Fd ctl={ctl} id="mImp" label="Imp A" step="0.01" /><Fd ctl={ctl} id="mVoc" label="Voc V" step="0.01" /></div>
