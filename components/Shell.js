@@ -184,7 +184,7 @@ export function NewProject({ ctl }) {
 }
 
 /* ---------- project detail: header + tabs (work-order details style) ---------- */
-const STEPS = [['1', 'المشروع والموقع'], ['5', 'الاستهلاك والتعرفة'], ['2', 'الاتجاه والرسم'], ['3', 'النظام والـ Strings'], ['4', 'الخسائر'], ['6', 'المحاكاة والتقرير'], ['8', 'التصميم الكلي']];
+const STEPS = [['1', 'المشروع والموقع'], ['2', 'الاتجاه والرسم'], ['5', 'الاستهلاك والتعرفة'], ['3', 'النظام والـ Strings'], ['4', 'الخسائر'], ['6', 'المحاكاة والتقرير'], ['8', 'التصميم الكلي']];
 export function ProjectHeader({ ctl }) {
   useEffect(() => { const k = e => { if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) { const t = e.target, tag = t && t.tagName; if (tag === 'INPUT' || tag === 'TEXTAREA') return; e.preventDefault(); ctl.undo(); } };
     window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [ctl]);
