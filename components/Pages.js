@@ -90,6 +90,7 @@ export function PLoads({ ctl }) {
     <div className="grid">
       {!off && <div className="card"><h2>آلية الربط والتعرفة</h2>
         <Sel ctl={ctl} id="mech" label="آلية الربط" options={[['netOn', 'صافي القيمة — نفس الموقع'], ['zero', 'التصدير الصفري'], ['sellAll', 'تصدير الكل واستجرار الكل'], ['netOff', 'صافي القيمة — خارج الموقع (≥30 ك.و)']]} />
+        {ctl.mechMsg && <div className="info">ℹ {ctl.mechMsg}</div>}
         <Sel ctl={ctl} id="sector" label="فئة التعرفة" options={TARIFFS} />
         {!ctl.isOff() && ctl.f.sector && ctl.f.sector.indexOf('dom_') === 0 && <>
           <label>اشتراك البيت (الطور) — بيتحدد تلقائياً من الاستهلاك</label>
