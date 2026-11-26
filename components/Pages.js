@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Fd, Sel, Picker, Html, Help, readFile } from './ui';
 import { CITIES, STYPE_INFO, TARIFFS, BTYPES, MON, IAM_ANG, LOSS_SRC, DESIGN_T_SRC, fmt } from '@/lib/controller';
 import { importRows, parseCSV, loadXLSX, TEMPLATE_CSV } from '@/lib/loadsImport';
@@ -8,11 +8,13 @@ import Roof, { FullDesign } from './Roof';
 export { FullDesign };
 
 /* system size typed before any drawing: the tool builds the closest real design (modules, strings, inverter) and the roof follows when drawn */
-function KwpCard({ ctl }) { const [kw, setKw] = useState(''), [msg, setMsg] = useState('');
+function KwpCard({ ctl }) { const cur = ctl.kwpNow() ? String(Math.round(ctl.kwpNow() * 100) / 100) : '', [kw, setKw] = useState(cur), [msg, setMsg] = useState(''), [dirty, setDirty] = useState(false);
+  useEffect(() => { if (!dirty) setKw(cur); }, [cur]); // eslint-disable-line
+  const go = () => { setMsg(ctl.designKWp(kw).msg); setDirty(false); const k = ctl.kwpNow(); if (k) setKw(String(Math.round(k * 100) / 100)); };
   return <div className="card"><h2>⚡ حجم النظام المطلوب <small>Target size</small></h2>
-    <div className="r2"><label>kWp<input type="number" step="0.1" min="0" value={kw} onChange={e => setKw(e.target.value)} placeholder={ctl.kwpNow() ? fmt(ctl.kwpNow(), 2) : 'مثلاً 20'} onKeyDown={e => { if (e.key === 'Enter') setMsg(ctl.designKWp(kw).msg); }} /></label>
-      <button className="b pri" style={{ alignSelf: 'end' }} onClick={() => setMsg(ctl.designKWp(kw).msg)}>صمّم على هالحجم</button></div>
-    <div className="mute" style={{ marginTop: 6 }}>اكتب الحجم قبل الرسم، والبرنامج بيختار عدد الألواح والـ strings والانفيرتر. لما ترسم، الألواح بتتوزع على السطح أو الأرض.</div>
+    <div className="r2"><label>kWp<input type="number" step="0.1" min="0" value={kw} onChange={e => { setKw(e.target.value); setDirty(true); }} placeholder={ctl.kwpNow() ? fmt(ctl.kwpNow(), 2) : 'مثلاً 20'} onKeyDown={e => { if (e.key === 'Enter') go(); }} /></label>
+      <button className="b pri" style={{ alignSelf: 'end' }} onClick={go}>صمّم على هالحجم</button></div>
+    <div className="mute" style={{ marginTop: 6 }}>الخانة بتعرض الحجم الحالي، وبتتحدث لما تغيّر الرسمة أو التصميم. اكتب حجم جديد واضغط صمّم: الألواح والـ strings والانفيرتر والبطاريات والرسمة كلهم بيتبعوه.</div>
     {msg && <div className={msg[0] === '✓' ? 'info' : 'warn'}>{msg}</div>}</div>; }
 
 /* 1 · project & site */
