@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
+import J from '@/lib/engine/jo-rules';
 import { Fd, Sel, Picker, Html, Help, readFile } from './ui';
 import { CITIES, STYPE_INFO, TARIFFS, BTYPES, MON, IAM_ANG, LOSS_SRC, DESIGN_T_SRC, fmt } from '@/lib/controller';
 import { importRows, parseCSV, loadXLSX, TEMPLATE_CSV } from '@/lib/loadsImport';
@@ -12,6 +13,16 @@ export { FullDesign };
 function EKLine({ ctl }) { const k = ctl.eK(); if (Math.abs(k - 1) < 0.01) return null; const E0 = ctl.dailyProfile(false, true).reduce((a, b) => a + b, 0);
   return <div className="info">⚡ الطاقة المصمّم عليها: <b>{fmt(E0 * k * 30.4, 0)} ك.و.س/شهر</b> ({fmt(E0 * k, 1)} باليوم) = استهلاكك {fmt(E0 * 30.4, 0)} × {fmt(k, 2)}، لأنك غيّرت حجم الألواح من الرسمة أو الـ kWp. البطاريات والانفيرتر والمحاكاة كلها على هالطاقة.
     <button className="b sm" style={{ marginInlineStart: 8 }} onClick={() => ctl.resetEK()}>↺ رجّع التصميم على استهلاكي</button></div>; }
+/* homes and villas on the grid: on the client's consumption, or the biggest system the EMRC allows */
+function BasisLine({ ctl }) { if (ctl.isOff() && ctl.f.dBasis === 'draw') return <div className="info" style={{ marginTop: 8 }}>🧾 الاستهلاك محسوب من الرسمة: <b>{fmt(+ctl.f.b0 || 0, 0)} ك.و.س/شهر</b> = اللي بتقدر الألواح ({fmt(ctl.kwpNow(), 2)} kWp) تغطيه بأسوأ شهر، والبطاريات عليه. لما تدخل الأحمال أو الفواتير، التصميم بيصير على استهلاكك.</div>;
+  if (!ctl.domGrid()) return null; const b = ctl.basis(), ph = ctl.f.dPh, P = ctl.mod().Pmax || 0,
+    kwp = x => P ? fmt(Math.floor(J.ampLimitKW(x) * J.SIZING.dcacMax[x] * 1000 / P + 1e-9) * P / 1000, 2) : fmt(J.ampLimitKW(x) * J.SIZING.dcacMax[x], 1);
+  return <div className="rf-row" style={{ flexWrap: 'wrap', gap: 6, marginTop: 8 }}><b>أساس التصميم:</b>
+    <button className={'b sm' + (b === 'cons' ? ' pri' : '')} onClick={() => ctl.setBasis('cons')}>🧾 حسب استهلاك العميل</button>
+    <button className={'b sm' + (b === 'max' && ph === '1ph' ? ' pri' : '')} onClick={() => ctl.setBasis('max', '1ph')}>📈 أكبر قدرة سنغل فيز: 3.6 kW · {kwp('1ph')} kWp</button>
+    <button className={'b sm' + (b === 'max' && ph === '3ph' ? ' pri' : '')} onClick={() => ctl.setBasis('max', '3ph')}>📈 أكبر قدرة 3 فاز: 10 kW · {kwp('3ph')} kWp</button>
+    {b === 'kwp' && <div className="info" style={{ width: '100%' }}>التصميم على الحجم اللي كتبته ({fmt(ctl.kwpNow(), 2)} kWp): الفاتورة الشهرية صارت {fmt(+ctl.f.b0 || 0, 0)} ك.و.س عشان الهيئة تسمح فيه. {ctl.f.billsSave && ctl.f.billsSave.indexOf('"b":[""') < 0 ? 'فواتير العميل محفوظة وبترجع لما تختار "حسب استهلاك العميل".' : ''}</div>}
+    {b === 'max' && <div className="info" style={{ width: '100%' }}>التصميم على أكبر قدرة بتسمح فيها الهيئة للمنزلي ({ph === '1ph' ? 'سنغل فيز 3.6 kW' : '3 فاز 10 kW'} AC). الفواتير صارت {fmt(ctl.maxBill(ph), 0)} ك.و.س/شهر (القدرة × 150 ك.و.س/ك.و)، والرسمة والمحاكاة عليها. {ctl.f.billsSave && ctl.f.billsSave.indexOf('"b":[""') < 0 ? 'فواتير العميل محفوظة وبترجع لما تختار "حسب استهلاك العميل".' : 'لما تدخل فواتير العميل، التصميم بيرجع على استهلاكه.'}</div>}</div>; }
 function KwpCard({ ctl }) { const cur = ctl.kwpNow() ? String(Math.round(ctl.kwpNow() * 100) / 100) : '', [kw, setKw] = useState(cur), [msg, setMsg] = useState(''), [dirty, setDirty] = useState(false);
   useEffect(() => { if (!dirty) setKw(cur); }, [cur]); // eslint-disable-line
   const go = () => { setMsg(ctl.designKWp(kw).msg); setDirty(false); const k = ctl.kwpNow(); if (k) setKw(String(Math.round(k * 100) / 100)); };
@@ -19,7 +30,7 @@ function KwpCard({ ctl }) { const cur = ctl.kwpNow() ? String(Math.round(ctl.kwp
     <div className="r2"><label>kWp<input type="number" step="0.1" min="0" value={kw} onChange={e => { setKw(e.target.value); setDirty(true); }} placeholder={ctl.kwpNow() ? fmt(ctl.kwpNow(), 2) : 'مثلاً 20'} onKeyDown={e => { if (e.key === 'Enter') go(); }} /></label>
       <button className="b pri" style={{ alignSelf: 'end' }} onClick={go}>صمّم على هالحجم</button></div>
     <div className="mute" style={{ marginTop: 6 }}>الخانة بتعرض الحجم الحالي، وبتتحدث لما تغيّر الرسمة أو التصميم. اكتب حجم جديد واضغط صمّم: الألواح والـ strings والانفيرتر والبطاريات والرسمة كلهم بيتبعوه.</div>
-    {msg && <div className={msg[0] === '✓' ? 'info' : 'warn'}>{msg}</div>}<EKLine ctl={ctl} /></div>; }
+    {msg && <div className={msg[0] === '✓' ? 'info' : 'warn'}>{msg}</div>}<EKLine ctl={ctl} /><BasisLine ctl={ctl} /></div>; }
 
 /* 1 · project & site */
 export function PSite({ ctl }) {
@@ -111,7 +122,7 @@ export function PLoads({ ctl }) {
       </div>}
       <div className="card"><h2>الاستهلاك</h2>
         <div className="tabs"><button className={ctl.cmode === 'bills' ? 'on' : ''} onClick={() => ctl.setCmode('bills')}>12 فاتورة</button><button className={ctl.cmode === 'loads' ? 'on' : ''} onClick={() => ctl.setCmode('loads')}>جدول أحمال</button></div>
-        <EKLine ctl={ctl} />
+        <EKLine ctl={ctl} /><BasisLine ctl={ctl} />
         {ctl.cmode === 'bills' ? <div>
           <div className="bills">{MON.map((m, i) => <div key={i}><label>{m}<Help text={HELP['b' + i]} /></label>
             <input type="number" placeholder=" " value={ctl.f['b' + i] ?? ''} onChange={e => ctl.input('b' + i, e.target.value)}
