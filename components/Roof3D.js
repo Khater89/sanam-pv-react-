@@ -159,15 +159,19 @@ export default function Roof3D({ R, img, Y, sun, sel, onSelect, onMove, tool = '
           const up = P3(tg, 0, a + Y.mS, 0.03).sub(P3(tg, 0, a, 0.03)).normalize(), ax = W3(1, 0, 0).sub(W3(0, 0, 0)).normalize(), nrm = new THREE.Vector3().crossVectors(up, ax).normalize(); if (nrm.y < 0) nrm.negate();
           const zAx = up.clone().negate(), xAx = new THREE.Vector3().crossVectors(nrm, zAx).normalize(); mesh.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(xAx, nrm, zAx));
           mesh.userData = { mod: gm.key, ghost: 1 }; S.mods.push(mesh); root.add(mesh); });
-        if (!T) return; const e = ST.e, SL = Y.S;
-        for (let k = 0; k < T.nf; k++) { const u = t.u0 + ST.ov + k * T.sp; if (u > t.u1 + 0.01) break;
-          const r0 = P3(t, u, -0.03, -0.05), r1 = P3(t, u, SL + 0.02, -0.05); bar(r0, r1, 0.06, steel); // rafter
-          const Ls = ST.legsS || [e, SL - e], Lh = ST.legH || [];
-          Ls.forEach(sd => bar(W3(u, t.vF - sd * cb, 0), P3(t, u, sd, -0.05), 0.06, steel)); // columns → rafter → purlins → modules
-          for (let q = 0; q + 1 < Ls.length; q++) bar(W3(u, t.vF - Ls[q] * cb, 0.1), W3(u, t.vF - Ls[q + 1] * cb, (Lh[q + 1] || 1) * 0.8), 0.035, steel); // diagonal in the frame
-          if ((T.xb || []).indexOf(k) >= 0) [Ls[0], Ls[Ls.length - 1]].forEach((sd, q) => { const zt = (q ? (Lh[Lh.length - 1] || 1) : (Lh[0] || 1)) * 0.85, v = t.vF - sd * cb; // X-brace to the next frame
+        if (!T) return; const e = ST.e, pS = Y.mS + (Y.nr > 1 ? gp : 0), Ls0 = ST.legsS || [e, Y.S - e];
+        // the steel follows the modules: each frame only under the modules it carries (a turned table or a plane with gaps has no steel in the air)
+        const segAt = u => { const js = t.mods.filter(m => u >= m.u0 - 0.35 && u <= m.u1 + 0.35).map(m => m.j); if (!js.length) return null; return [Math.min(...js) * pS, Math.max(...js) * pS + Y.mS]; };
+        const legsIn = sg => { let q = Ls0.filter(sd => sd >= sg[0] - 0.05 && sd <= sg[1] + 0.05); if (q.length < 2) { const len = sg[1] - sg[0], ee = Math.min(e, len * 0.2); q = len > 1.2 ? [sg[0] + ee, sg[1] - ee] : [sg[0] + len / 2]; } return q; };
+        for (let k = 0; k < T.nf; k++) { const u = t.u0 + ST.ov + k * T.sp; if (u > t.u1 + 0.01) break; const sg = segAt(u); if (!sg) continue;
+          bar(P3(t, u, sg[0] - 0.03, -0.05), P3(t, u, sg[1] + 0.02, -0.05), 0.06, steel); // rafter
+          const Ls = legsIn(sg); Ls.forEach(sd => bar(W3(u, t.vF - sd * cb, 0), P3(t, u, sd, -0.05), 0.06, steel)); // columns → rafter → purlins → modules
+          for (let q = 0; q + 1 < Ls.length; q++) bar(W3(u, t.vF - Ls[q] * cb, 0.1), W3(u, t.vF - Ls[q + 1] * cb, (Y.h1 + Ls[q + 1] * sb) * 0.8), 0.035, steel); // diagonal in the frame
+          if ((T.xb || []).indexOf(k) >= 0 && segAt(u + T.sp)) [Ls[0], Ls[Ls.length - 1]].forEach(sd => { const zt = (Y.h1 + sd * sb) * 0.85, v = t.vF - sd * cb; // X-brace to the next frame
             bar(W3(u, v, 0.1), W3(u + T.sp, v, zt), 0.03, steel); bar(W3(u + T.sp, v, 0.1), W3(u, v, zt), 0.03, steel); }); }
-        const rows = Math.max(1, Y.nr); for (let j = 0; j < rows; j++) [0.25, 0.75].forEach(fr => { const sd = j * (Y.mS + (Y.nr > 1 ? gp : 0)) + fr * Y.mS; bar(P3(t, t.u0 - 0.05, sd, -0.015), P3(t, t.u1 + 0.05, sd, -0.015), 0.04, railM); }); }); }
+        const rows = Math.max(1, Y.nr); for (let j = 0; j < rows; j++) { const row = t.mods.filter(m => m.j === j).sort((a, b) => a.u0 - b.u0); if (!row.length) continue; // rails only along the modules of the row, split at gaps
+          const runs = []; row.forEach(m => { const r = runs[runs.length - 1]; if (r && m.u0 - r[1] < Y.mU * 0.5 + 0.1) r[1] = m.u1; else runs.push([m.u0, m.u1]); });
+          runs.forEach(r => [0.25, 0.75].forEach(fr => { const sd = j * pS + fr * Y.mS; bar(P3(t, r[0] - 0.05, sd, -0.015), P3(t, r[1] + 0.05, sd, -0.015), 0.04, railM); })); } }); }
     // camera target and shadow box
     S.ctr.target.set(cx, 0, -cy); const sc = S.sunL.shadow.camera, ext = span * 1.6; sc.left = -ext; sc.right = ext; sc.top = ext; sc.bottom = -ext; sc.near = 0.5; sc.far = span * 12; sc.updateProjectionMatrix();
     S.centre = [cx, cy, span]; if (!S.framed) { S.cam.position.set(cx - span * 0.9, span * 1.1, -cy + span * 1.3); S.framed = true; }
