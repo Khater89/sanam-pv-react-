@@ -33,13 +33,13 @@ const MODES_AZ = [['pan', '✋ تحريك'], ['sys', '✥ حرّك المنظو�
 const MODES_SH = [['pan', '✋ تحريك'], ['sys', '✥ حرّك المنظومة'], ['bld', '🏢 مبنى/غرفة'], ['tree', '🌳 شجرة'], ['drop', '⬇ نزول الكوابل (الدرج)'], ['inv', '🔌 مكان الانفيرتر'], ['move', '↔ تعديل/إضافة نقاط'], ['del', '🗑 حذف']];
 const M_LAT = 110574, mLon = lat => 111320 * Math.cos(lat * Math.PI / 180);
 
-function tiles(lat0, lon0, view, z) { // Esri World Imagery tiles covering the view (world metres)
+function tiles(lat0, lon0, view, z, g) { // satellite tiles covering the view (world metres): Google (Map Tiles API through /api/gtile) or Esri World Imagery
   if (lat0 == null || lon0 == null) return []; const n = Math.pow(2, z), toLon = x => lon0 + x / mLon(lat0), toLat = y => lat0 + y / M_LAT;
   const tx = lon => Math.floor((lon + 180) / 360 * n), ty = lat => { const r = lat * Math.PI / 180; return Math.floor((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * n); };
   const x0 = tx(toLon(view[0])), x1 = tx(toLon(view[2])), y0 = ty(toLat(view[3])), y1 = ty(toLat(view[1])), out = [];
   if ((x1 - x0 + 1) * (y1 - y0 + 1) > 64) return [];
   const lonOf = x => x / n * 360 - 180, latOf = y => Math.atan(Math.sinh(Math.PI * (1 - 2 * y / n))) * 180 / Math.PI;
-  for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) out.push({ k: z + '/' + y + '/' + x, url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/' + z + '/' + y + '/' + x,
+  for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) out.push({ k: (g ? 'g' : 'e') + z + '/' + y + '/' + x, url: g ? '/api/gtile?z=' + z + '&x=' + x + '&y=' + y : 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/' + z + '/' + y + '/' + x,
     x: (lonOf(x) - lon0) * mLon(lat0), y: (latOf(y) - lat0) * M_LAT, w: (lonOf(x + 1) - lonOf(x)) * mLon(lat0), h: (latOf(y) - latOf(y + 1)) * M_LAT });
   return out; }
 
@@ -77,8 +77,14 @@ export default function Roof({ ctl, part }) {
   const [sloss, setSloss] = useState(null), lkey = Yv && Yv.n ? [ctl.f.roof, ctl.f.tilt, ctl.f.ns, Yv.n].join('|') : '';
   useEffect(() => { if (!lkey) { setSloss(null); return; } setSloss('…'); const t = setTimeout(() => { ctl.shadeLoss().then(x => setSloss(x || null)).catch(e => setSloss({ err: e.message })); }, 600); return () => clearTimeout(t); }, [lkey]); // eslint-disable-line
   useEffect(() => { if (!AZ && Y && Y.n && !shd) calc(); }, [ctl.f.roof, ctl.f.tilt, Y && Y.n]); // eslint-disable-line
-  useEffect(() => { if (R.pts.length > 2) { const b = R.pts.reduce((a, p) => [Math.min(a[0], p[0]), Math.min(a[1], p[1]), Math.max(a[2], p[0]), Math.max(a[3], p[1])], [1e9, 1e9, -1e9, -1e9]);
-    setV({ cx: (b[0] + b[2]) / 2, cy: (b[1] + b[3]) / 2, s: Math.min(Wpx / (b[2] - b[0] + 8), Hpx / (b[3] - b[1] + 8)) }); } }, []); // eslint-disable-line
+  /* 🎯 back to the drawing: fits the roof (and the objects around it) in the view, wherever the map was moved to */
+  const fitDraw = () => { const P = R.pts.concat(...(R.bld || []).map(b => b.pts || [])); if (P.length < 2) { setV(o => ({ ...o, cx: 0, cy: 0, s: Math.max(o.s, 4) })); return; }
+    const b = P.reduce((a, p) => [Math.min(a[0], p[0]), Math.min(a[1], p[1]), Math.max(a[2], p[0]), Math.max(a[3], p[1])], [1e9, 1e9, -1e9, -1e9]);
+    setV({ cx: (b[0] + b[2]) / 2, cy: (b[1] + b[3]) / 2, s: Math.max(1, Math.min(200, Wpx / (b[2] - b[0] + 8), Hpx / (b[3] - b[1] + 8))) }); };
+  useEffect(() => { if (R.pts.length > 2) fitDraw(); }, []); // eslint-disable-line
+  /* Google satellite (same imagery as Google Maps) when the server has a key, else Esri */
+  const [gOn, setGOn] = useState(false), [gAttr, setGAttr] = useState('Google');
+  useEffect(() => { fetch('/api/gtile?status=1').then(r => r.json()).then(j => setGOn(!!j.on)).catch(() => setGOn(false)); }, []);
 
   const SX = x => Wpx / 2 + (x - v.cx) * v.s, SY = y => Hpx / 2 - (y - v.cy) * v.s;
   const toW = e => { const r = svg.current.getBoundingClientRect(), px = (e.clientX - r.left) * Wpx / r.width, py = (e.clientY - r.top) * Hpx / r.height;
@@ -135,9 +141,9 @@ export default function Roof({ ctl, part }) {
     commit(n => { n.pts = n.pts.map(sh); n.bld.forEach(b => { b.pts = (b.pts || []).map(sh); if (b.rect) { b.rect.cx -= p[0]; b.rect.cy -= p[1]; } }); n.trees.forEach(t => { const q = sh([t.x, t.y]); t.x = q[0]; t.y = q[1]; });
       if (n.lay.invPos) n.lay.invPos = sh(n.lay.invPos); if (n.lay.dbPos) n.lay.dbPos = sh(n.lay.dbPos); n.map = { ...(n.map || {}), on: 1 }; });
     setV(o => ({ ...o, cx: 0, cy: 0 })); setVmsg('📍 الموقع صار ' + la.toFixed(5) + ', ' + lo.toFixed(5) + ' — الرسمة ضلت على نفس المكان.'); setMode('pan'); };
-  const findPlace = async () => { const q = (locQ || '').trim(); if (!q) return; const mm = q.match(/(-?\d+\.\d+)\s*[, ]\s*(-?\d+\.\d+)/);
+  const findPlace = async () => { const q = (locQ || '').trim(); if (!q) return; const g3 = q.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/), gat = q.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/), mm = g3 || gat || q.match(/(-?\d+\.\d+)\s*[, ]\s*(-?\d+\.\d+)/); // coordinates, a Google Maps link, or a place name
     try { let la, lo; if (mm) { la = +mm[1]; lo = +mm[2]; } else { const r = await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=jo&q=' + encodeURIComponent(q)).then(x => x.json()); if (!r || !r[0]) return setVmsg('ما لقيت "' + q + '". جرّب اسم منطقة أو احداثيات lat, lon.'); la = +r[0].lat; lo = +r[0].lon; }
-      ctl.input('city', String(CITIES.length - 1)); ctl.input('lat', la.toFixed(6)); ctl.input('lon', lo.toFixed(6)); commit(n => { n.map = { ...(n.map || {}), on: 1 }; }); setV(o => ({ ...o, cx: 0, cy: 0, s: Math.max(o.s, 4) }));
+      ctl.input('city', String(CITIES.length - 1)); ctl.input('lat', la.toFixed(6)); ctl.input('lon', lo.toFixed(6)); commit(n => { n.map = { ...(n.map || {}), on: 1 }; }); setV(o => ({ ...o, cx: 0, cy: 0, s: Math.max(o.s, 8) }));
       setVmsg('📍 رحت على ' + la.toFixed(5) + ', ' + lo.toFixed(5) + '. حرّك الخريطة، واضغط "📍 حدد الموقع" على المبنى بالضبط.'); } catch (e) { setVmsg('ما قدرت أبحث: ' + e.message); } };
   const modPts = () => { const Y = Yv; if (!Y || !Y.n) return []; const F = Y.F, cb = Math.cos(Y.b), g = (Y.S - Y.nr * Y.mS) / Math.max(1, Y.nr - 1), out = [];
     Y.tables.forEach(t => t.mods.forEach(m => { const a = m.j * (Y.mS + (Y.nr > 1 ? g : 0)) * cb; out.push(RF.toW(F, (m.u0 + m.u1) / 2, t.vF - a - Y.mS * cb / 2)); })); return out; };
@@ -175,8 +181,10 @@ export default function Roof({ ctl, part }) {
   useEffect(() => { const el = svg.current; if (!el) return; el.addEventListener('wheel', wheel, { passive: false }); return () => el.removeEventListener('wheel', wheel); });
   useEffect(() => { const k = e => { if (e.key === 'Enter') finish(); if (e.key === 'Escape') setDraft([]); }; addEventListener('keydown', k); return () => removeEventListener('keydown', k); });
 
-  const view = [v.cx - Wpx / 2 / v.s, v.cy - Hpx / 2 / v.s, v.cx + Wpx / 2 / v.s, v.cy + Hpx / 2 / v.s], z = v.s > 6 ? 19 : v.s > 3 ? 18 : 17;
-  const T = R.map && R.map.on ? tiles(lat, lon, view, z) : [], pp = a => a.map(p => SX(p[0]) + ',' + SY(p[1])).join(' ');
+  const view = [v.cx - Wpx / 2 / v.s, v.cy - Hpx / 2 / v.s, v.cx + Wpx / 2 / v.s, v.cy + Hpx / 2 / v.s], gm = gOn && !(R.map && R.map.src === 'e'), z = gm ? (v.s > 14 ? 21 : v.s > 7 ? 20 : v.s > 3.5 ? 19 : v.s > 1.8 ? 18 : 17) : v.s > 6 ? 19 : v.s > 3 ? 18 : 17;
+  useEffect(() => { if (!gm || lat == null || lon == null || !(R.map && R.map.on)) return; const t = setTimeout(() => { const q = 'zoom=' + z + '&n=' + (lat + view[3] / M_LAT) + '&s=' + (lat + view[1] / M_LAT) + '&e=' + (lon + view[2] / mLon(lat)) + '&w=' + (lon + view[0] / mLon(lat));
+    fetch('/api/gtile?attr=1&' + q).then(r => r.json()).then(j => setGAttr(j.copyright || 'Google')).catch(() => {}); }, 800); return () => clearTimeout(t); }, [gm, z, Math.round(v.cx / 60), Math.round(v.cy / 60), lat, lon, R.map && R.map.on]); // eslint-disable-line
+  const T = R.map && R.map.on ? tiles(lat, lon, view, z, gm) : [], pp = a => a.map(p => SX(p[0]) + ',' + SY(p[1])).join(' ');
   const quickRect = () => { const a = +rect.a / 2, b = +rect.b / 2, r = (+rect.r || 0) * Math.PI / 180, c = Math.cos(r), s = Math.sin(r);
     commit(n => { n.pts = [[-a, -b], [a, -b], [a, b], [-a, b]].map(([x, y]) => [Math.round((x * c + y * s) * 100) / 100, Math.round((-x * s + y * c) * 100) / 100]); n.lay.edge = 0; });
     setV({ cx: 0, cy: 0, s: Math.min(Wpx / (+rect.a + 8), Hpx / (+rect.b + 8)) }); };
@@ -447,9 +455,15 @@ export default function Roof({ ctl, part }) {
         : L.fill === 'count' && +L.nMan - (L.off || []).length > Yv.n && <div className="warn">بهالارتفاع ({fmt(+L.h1 || 0, 2)} m) السطح بيساع {Yv.n} لوح بس من {+L.nMan - (L.off || []).length}: في أجسام أعلى من الهيكل. ارفعه، أو اضغط "⬆ ارفع وكبّر فوق الأجسام".</div>}
       {Yv.cap > 0 && <div className="warn">السطح ما بيساع أكثر من {Yv.cap} لوح على هيكل واحد بهالارتفاع. ارفع الهيكل ليمرّ فوق الأجسام، أو احذف عوائق.</div>}
       <label className="rf-f rf-slide"><span>ارتفاع الهيكل (الحافة الأمامية) {fmt(+L.h1 || 0, 2)} m — بيغيّر الارتفاع بس، وعدد الألواح بيضل نفسه</span><input type="range" min="0" max={HL.f} step="0.05" value={Math.min(+L.h1 || 0, HL.f)} onChange={e => commit(n => { n.lay.h1 = +e.target.value; if (n.lay.fill === 'max') { n.lay.fill = 'count'; n.lay.nMan = Yv.n + (n.lay.off || []).length; n.lay.cs = Yv.plane ? 2 : Yv.single ? 1 : 0; } })} /></label>
-      <div className="rf-row"><button className="b pri" onClick={raiseGrow} title="أول ضغطة بترفع الهيكل فوق أعلى جسم وبتعبّي كل السطح بالألواح، وكل ضغطة بعدها بترفعه نص متر لحد الحد المسموح">⬆ ارفع وكبّر فوق الأجسام</button>
-        <span className="mute">بيرفع الهيكل لـ {fmt(growH, 2)} m (أعلى جسم على السطح + 30 cm) وبيعبّي السطح كامل، فالألواح بتغطي مكان الخزانات والغرف.</span></div>
-      <div className="kpis">{[['اللوح', fmt(Math.max(Yv.mU, Yv.mS), 3) + ' × ' + fmt(Math.min(Yv.mU, Yv.mS), 3) + ' m'], ['الألواح', Yv.n + ' · ' + Yv.tables.length + ' طاولة'], ['طول الطاولة × عمقها', fmt(T0.len, 2) + ' × ' + fmt(Yv.D, 2) + ' m'],
+      {(() => { /* ⬆ raise & grow slider: right = higher structure and more modules (around the objects first, then over them), left = back down and fewer, back to where it started */
+        const G = L.grow && +L.cs === 2 ? L.grow : null, b0 = G ? +G.h1 || 0 : +L.h1 || 0, lim = HL.f, st = 0.05, K = Math.max(1, Math.round((lim - b0) / st) + 1), pos = G ? Math.max(1, Math.min(K, Math.round(((+L.h1 || 0) - b0) / st) + 1)) : 0;
+        const go = v => { v = +v; commit(n => { if (v <= 0) { if (n.lay.grow) { Object.assign(n.lay, n.lay.grow); ['nMan', 'nReq', 'cs'].forEach(k => { if (n.lay.grow[k] == null) delete n.lay[k]; }); delete n.lay.grow; } return; }
+            if (!n.lay.grow || +n.lay.cs !== 2) n.lay.grow = { h1: +n.lay.h1 || 0, fill: n.lay.fill, nMan: n.lay.nMan, nReq: n.lay.nReq, cs: n.lay.cs, struct: n.lay.struct };
+            n.lay.h1 = Math.round((+n.lay.grow.h1 + (v - 1) * st) * 100) / 100; n.lay.fill = 'max'; n.lay.cs = 2; n.lay.off = []; delete n.lay.nMan; delete n.lay.nReq; delete n.lay.shift; delete n.lay.nUse; if (n.lay.struct !== 'multi') n.lay.struct = 'auto'; }); };
+        return <div className="rf-box rf-grow"><label className="rf-f rf-slide"><span><b>⬆ ارفع وكبّر</b> — {G ? 'الهيكل ' + fmt(+L.h1 || 0, 2) + ' m · ' + Yv.n + ' لوح (بدأت من ' + fmt(b0, 2) + ' m)' : 'اسحب لليمين: بيرفع الهيكل وبيزيد الألواح'}</span>
+          <span className="rf-gr"><button className="sm" disabled={pos <= 0} onClick={() => go(pos - 1)}>−</button><input type="range" min="0" max={K} step="1" value={pos} onChange={e => go(e.target.value)} /><button className="sm" disabled={pos >= K} onClick={() => go(pos + 1)}>+</button></span></label>
+          <div className="mute">لليمين: الألواح بتتوزع أول على أطراف الأجسام بنفس الارتفاع، وكل ما ارتفع الهيكل بتمرّ فوق الأجسام الأوطى منه وبتزيد، لحد الحد المسموح ({fmt(lim, 2)} m). لليسار: بينزل وبتنقص بالعكس، وأول السحّاب بيرجعك للتصميم اللي كان.</div></div>; })()}
+      <div className="kpis">{[['اللوح', fmt(Math.max(Yv.mU, Yv.mS), 3) + ' × ' + fmt(Math.min(Yv.mU, Yv.mS), 3) + ' m · فراغ ' + fmt((+L.gapX || 0) * 100, 0) + ' cm'], ['الألواح', Yv.n + ' · ' + Yv.tables.length + ' طاولة'], ['طول الطاولة × عمقها', fmt(T0.len, 2) + ' × ' + fmt(Yv.D, 2) + ' m'],
         ['الأرجل أمامية / خلفية', fmt(STv.hf, 2) + ' / ' + fmt(STv.hr, 2) + ' m'], ['الإطارات', STv.tables.reduce((a, t) => a + t.nf, 0) + ' إطار'], ['الحديد', fmt(STv.steelKg, 0) + ' kg'], ...(SE ? [['سعر الهيكل (تقدير)', fmt(SE.steelJD, 0) + ' JD · ' + fmt(SE.rng[1], 0) + ' JD/kWp'], ['وزن النظام على السطح', fmt(SE.totKg, 0) + ' kg · ' + fmt(SE.kgM2Array, 1) + ' kg/m²']] : [])].map(([a, x]) => <div key={a} className="kpi"><div>{a}</div><b>{x}</b></div>)}</div>
       <div className={sloss && sloss.near > 0.03 ? 'warn' : 'info'}>{!sloss ? 'خسارة الظل بتنحسب بعد تحميل بيانات الطقس.' : sloss === '…' ? '☀ جاري حساب خسارة الظل…' : sloss.err ? 'ما قدرت أحسب خسارة الظل: ' + sloss.err :
         <>☀ خسارة الظل القريب على هالرسمة: <b>{fmt(sloss.near * 100, 2)}٪</b> من الإشعاع{sloss.elec > 0.0005 ? <> + <b>{fmt(sloss.elec * 100, 2)}٪</b> أثر كهربائي</> : null}، يعني الإنتاج بيقل <b>{fmt(sloss.tot * 100, 2)}٪</b>. معامل ظل المنتشر {fmt(sloss.fd * 100, 1)}٪. هاد الرقم نفسه بيدخل المحاكاة ومخطط الخسائر (Near Shadings).</>}</div>
@@ -511,6 +525,8 @@ export default function Roof({ ctl, part }) {
       {AZ && <span className="rf-loc"><input dir="auto" value={locQ} onChange={e => setLocQ(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') findPlace(); }} placeholder="ابحث عن منطقة أو lat, lon" /><button onClick={findPlace}>🔎</button></span>}
       <button disabled={!ctl.canUndo()} onClick={() => ctl.undo()} title="تراجع (Ctrl+Z)">↶ تراجع</button>
       <label className="rf-ck"><input type="checkbox" checked={!!(R.map && R.map.on)} onChange={e => commit(n => { n.map = { ...(n.map || {}), on: e.target.checked ? 1 : 0 }; })} /> صورة القمر الصناعي</label>
+      {gOn && R.map && R.map.on ? <select value={gm ? 'g' : 'e'} onChange={e => commit(n => { n.map = { ...(n.map || {}), src: e.target.value }; })}><option value="g">Google</option><option value="e">Esri</option></select> : null}
+      <button onClick={fitDraw} title="رجّع الشاشة على رسمة المشروع إذا ضاعت بالخريطة">🎯 ارجع للرسمة</button>
       <button onClick={() => { setView3(true); setTool3(R.pts.length > 2 ? 'push' : 'rect'); }}>📐 رسم زي SketchUp</button>
       {R.pts.length > 2 && <button onClick={dlRuby} title="SketchUp: Window → Ruby Console → load">⬇ SketchUp (Ruby)</button>}
       <button className={view3 ? 'on' : ''} onClick={() => setView3(!view3)}>{view3 ? '🗺 رجوع للرسمة 2D' : '🧊 عرض ثلاثي الأبعاد 3D'}</button>
@@ -548,7 +564,7 @@ export default function Roof({ ctl, part }) {
       {mode === 'move' && R.pts.concat(...R.bld.map(b => b.pts)).map((p, i) => <circle key={'v' + i} cx={SX(p[0])} cy={SY(p[1])} r="5" fill="#fff" stroke="#2563eb" strokeWidth="2" />)}
       <g transform={'translate(' + (Wpx - 36) + ',36)'}><circle r="18" fill="#fff" stroke="#334155" /><path d="M0 -15 L6 4 L0 0 L-6 4 z" fill="#dc2626" /><text y="-22" textAnchor="middle" className="rf-dim">N</text></g>
       {hover && <text x="10" y={Hpx - 10} className="rf-dim">x {fmt(hover[0], 2)} · y {fmt(hover[1], 2)} m</text>}
-      {T.length > 0 && <text x={Wpx / 2} y={Hpx - 6} textAnchor="middle" className="rf-att">Imagery © Esri, Maxar, Earthstar Geographics</text>}
+      {T.length > 0 && <text x={Wpx / 2} y={Hpx - 6} textAnchor="middle" className="rf-att">{gm ? 'Google · ' + gAttr : 'Imagery © Esri, Maxar, Earthstar Geographics'}</text>}
     </svg>}
     {ana && anaView}
     {AZ ? <>

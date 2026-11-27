@@ -8,6 +8,10 @@ import Roof, { FullDesign } from './Roof';
 export { FullDesign };
 
 /* system size typed before any drawing: the tool builds the closest real design (modules, strings, inverter) and the roof follows when drawn */
+/* off-grid: the energy the design is sized for, when the PV size was set by the drawing or the kWp (consumption × eK) */
+function EKLine({ ctl }) { const k = ctl.eK(); if (Math.abs(k - 1) < 0.01) return null; const E0 = ctl.dailyProfile(false, true).reduce((a, b) => a + b, 0);
+  return <div className="info">⚡ الطاقة المصمّم عليها: <b>{fmt(E0 * k * 30.4, 0)} ك.و.س/شهر</b> ({fmt(E0 * k, 1)} باليوم) = استهلاكك {fmt(E0 * 30.4, 0)} × {fmt(k, 2)}، لأنك غيّرت حجم الألواح من الرسمة أو الـ kWp. البطاريات والانفيرتر والمحاكاة كلها على هالطاقة.
+    <button className="b sm" style={{ marginInlineStart: 8 }} onClick={() => ctl.resetEK()}>↺ رجّع التصميم على استهلاكي</button></div>; }
 function KwpCard({ ctl }) { const cur = ctl.kwpNow() ? String(Math.round(ctl.kwpNow() * 100) / 100) : '', [kw, setKw] = useState(cur), [msg, setMsg] = useState(''), [dirty, setDirty] = useState(false);
   useEffect(() => { if (!dirty) setKw(cur); }, [cur]); // eslint-disable-line
   const go = () => { setMsg(ctl.designKWp(kw).msg); setDirty(false); const k = ctl.kwpNow(); if (k) setKw(String(Math.round(k * 100) / 100)); };
@@ -15,7 +19,7 @@ function KwpCard({ ctl }) { const cur = ctl.kwpNow() ? String(Math.round(ctl.kwp
     <div className="r2"><label>kWp<input type="number" step="0.1" min="0" value={kw} onChange={e => { setKw(e.target.value); setDirty(true); }} placeholder={ctl.kwpNow() ? fmt(ctl.kwpNow(), 2) : 'مثلاً 20'} onKeyDown={e => { if (e.key === 'Enter') go(); }} /></label>
       <button className="b pri" style={{ alignSelf: 'end' }} onClick={go}>صمّم على هالحجم</button></div>
     <div className="mute" style={{ marginTop: 6 }}>الخانة بتعرض الحجم الحالي، وبتتحدث لما تغيّر الرسمة أو التصميم. اكتب حجم جديد واضغط صمّم: الألواح والـ strings والانفيرتر والبطاريات والرسمة كلهم بيتبعوه.</div>
-    {msg && <div className={msg[0] === '✓' ? 'info' : 'warn'}>{msg}</div>}</div>; }
+    {msg && <div className={msg[0] === '✓' ? 'info' : 'warn'}>{msg}</div>}<EKLine ctl={ctl} /></div>; }
 
 /* 1 · project & site */
 export function PSite({ ctl }) {
@@ -96,7 +100,7 @@ export function PLoads({ ctl }) {
         <Sel ctl={ctl} id="sector" label="فئة التعرفة" options={TARIFFS} />
         {!ctl.isOff() && ctl.f.sector && ctl.f.sector.indexOf('dom_') === 0 && <>
           <label>اشتراك البيت (الطور) — بيتحدد تلقائياً من الاستهلاك</label>
-          <div className={'phase-pill ' + (ctl.subPh() === '1ph' ? 'ph1' : 'ph3')}>{ctl.subPh() === '1ph' ? 'سنغل فيز · حد 3.68 kW · الألواح = الانفيرتر × 1.5' : '3 فاز · حد 11.04 kW · الألواح = الانفيرتر × 1.2'}</div>
+          <div className={'phase-pill ' + (ctl.subPh() === '1ph' ? 'ph1' : 'ph3')}>{ctl.subPh() === '1ph' ? 'سنغل فيز · حد 3.6 kW · الألواح = الانفيرتر × 1.5' : '3 فاز · حد 10 kW · الألواح = الانفيرتر × 1.2'}</div>
           <div className="info" dangerouslySetInnerHTML={{ __html: ctl.phInfo() }} />
         </>}
         <Sel ctl={ctl} id="regime" label="القوانين المطبّقة بالحسابات" options={[['reg58', 'النافذة: نظام 58/2024 + تعرفة الهيئة الحالية'], ['draft26', 'سيناريو: مسودة أيلول 2026 (غير نافذة)']]} />
@@ -107,6 +111,7 @@ export function PLoads({ ctl }) {
       </div>}
       <div className="card"><h2>الاستهلاك</h2>
         <div className="tabs"><button className={ctl.cmode === 'bills' ? 'on' : ''} onClick={() => ctl.setCmode('bills')}>12 فاتورة</button><button className={ctl.cmode === 'loads' ? 'on' : ''} onClick={() => ctl.setCmode('loads')}>جدول أحمال</button></div>
+        <EKLine ctl={ctl} />
         {ctl.cmode === 'bills' ? <div>
           <div className="bills">{MON.map((m, i) => <div key={i}><label>{m}<Help text={HELP['b' + i]} /></label>
             <input type="number" placeholder=" " value={ctl.f['b' + i] ?? ''} onChange={e => ctl.input('b' + i, e.target.value)}

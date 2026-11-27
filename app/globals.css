@@ -315,3 +315,5 @@ html[dir=ltr] select{background-position:right 9px top 55%,right 14px top 55%;pa
 .rf-alt.on{border-color:#2563eb;box-shadow:0 0 0 2px #bfdbfe}
 .rf-alt svg{width:100%;height:auto;max-height:200px}
 .rf-loc{display:inline-flex;gap:2px}.rf-loc input{width:190px;border:1px solid #cbd5e1;border-radius:6px;padding:3px 6px;font-size:12px}
+
+.rf-gr{display:flex;gap:6px;align-items:center;width:100%}.rf-gr input{flex:1}.rf-grow{margin:6px 0}
