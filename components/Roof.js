@@ -361,11 +361,11 @@ export default function Roof({ ctl, part }) {
   const SECS = [['img', '📷 الصورة والمقياس'], ['roof', '🏠 السطح والمبنى'], ['objs', '📦 الأجسام', R.bld.length + R.trees.length], ['mods', '🔲 الألواح والهيكل والاتجاه', Yv ? Yv.n : 0], ['sun', '☀ الشمس والظل']];
   /* rotate the PV table on the roof (the building stays); the project azimuth follows */
   const fAz = R.pts.length > 2 ? RF.edgeAz(R.pts, Math.min(L.edge || 0, R.pts.length - 1)) : 0, tAz = R.pts.length > 2 ? RF.layAz(R) : 0, dirTxt = a => Math.abs(a) < 0.5 ? 'جنوب تماماً' : fmt(Math.abs(a), 1) + '° ' + (a > 0 ? 'للغرب' : 'للشرق');
-  const rotTable = d => commit(n => { n.lay.azMode = 'manual'; n.lay.az = Math.round((tAz + d) * 10) / 10; });
+  const rotTable = d => commit(n => { if (n.lay.azMode === 'edge' || n.lay.az0 == null) n.lay.az0 = tAz; n.lay.azMode = 'manual'; n.lay.az = Math.round((tAz + d) * 10) / 10; }); // the whole block turns, its shape stays
   const tableRot = <div className="rf-row rf-trot"><b>🧭 الشمال والجنوب:</b><span className="mute">المبنى (الضلع الأخضر): {dirTxt(fAz)}</span>
     <span className="rf-rot"><b>↻ تدوير طاولة الألواح</b>{[-5, -1, 1, 5].map(d => <button key={d} className="sm" onClick={() => rotTable(d)}>{d > 0 ? '+' : ''}{d}°</button>)}
-      <button className={'sm' + (L.azMode === 'edge' ? ' on' : '')} onClick={() => commit(n => { n.lay.azMode = 'edge'; })}>مع المبنى</button>
-      <button className={'sm' + (L.azMode === 'south' ? ' on' : '')} onClick={() => commit(n => { n.lay.azMode = 'south'; })}>جنوب تماماً</button></span>
+      <button className={'sm' + (L.azMode === 'edge' ? ' on' : '')} onClick={() => commit(n => { n.lay.azMode = 'edge'; delete n.lay.az0; })}>مع المبنى</button>
+      <button className={'sm' + (L.azMode === 'south' ? ' on' : '')} onClick={() => commit(n => { if (n.lay.azMode === 'edge' || n.lay.az0 == null) n.lay.az0 = tAz; n.lay.azMode = 'south'; })}>جنوب تماماً</button></span>
     <span className="rf-big2">الألواح: Az {fmt(tAz, 1)}° ({dirTxt(tAz)})</span></div>;
   const H3 = { select: 'اضغط على جسم لتختاره واسحبه لمكانه (بيلتصق على شبكة 25 cm). لف بالماوس وكبّر بالعجلة.', rect: 'اضغط واسحب على الأرض لترسم حدود المبنى كمستطيل (بيلتصق كل 25 cm).', poly: 'اضغط زوايا المبنى وحدة وحدة، وارجع اضغط على أول نقطة (أو دبل كليك) لتسكّره.',
     push: 'اسحب لفوق أو لتحت على المبنى لتغيّر ارتفاعه، أو على أي جسم لتغيّر ارتفاعه.', rotate: 'اسحب يمين أو يسار لتدوير المبنى وكل اللي عليه حوالين نصّه، لحتى يطابق اتجاهه الحقيقي.', delmod: 'اضغط على أي لوح لتحذفه، وبيضل مكانه أخضر شفاف. اضغط على المكان الأخضر ليرجع اللوح.' };
