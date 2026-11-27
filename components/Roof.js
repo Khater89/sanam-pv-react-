@@ -139,10 +139,16 @@ export default function Roof({ ctl, part }) {
     try { let la, lo; if (mm) { la = +mm[1]; lo = +mm[2]; } else { const r = await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=jo&q=' + encodeURIComponent(q)).then(x => x.json()); if (!r || !r[0]) return setVmsg('ما لقيت "' + q + '". جرّب اسم منطقة أو احداثيات lat, lon.'); la = +r[0].lat; lo = +r[0].lon; }
       ctl.input('city', String(CITIES.length - 1)); ctl.input('lat', la.toFixed(6)); ctl.input('lon', lo.toFixed(6)); commit(n => { n.map = { ...(n.map || {}), on: 1 }; }); setV(o => ({ ...o, cx: 0, cy: 0, s: Math.max(o.s, 4) }));
       setVmsg('📍 رحت على ' + la.toFixed(5) + ', ' + lo.toFixed(5) + '. حرّك الخريطة، واضغط "📍 حدد الموقع" على المبنى بالضبط.'); } catch (e) { setVmsg('ما قدرت أبحث: ' + e.message); } };
-  const down = e => { e.currentTarget.setPointerCapture(e.pointerId); const p = toW(e); const vt = mode === 'move' ? nearVert(p, 12) : null, ob = mode === 'move' && !vt ? objAt(p) : null; drag.current = { x: e.clientX, y: e.clientY, cx: v.cx, cy: v.cy, moved: false, vert: vt, obj: ob, p0: p, R0: ob ? JSON.parse(JSON.stringify(R)) : null, box: mode === 'bld' && !draft.length }; };
+  const modPts = () => { const Y = Yv; if (!Y || !Y.n) return []; const F = Y.F, cb = Math.cos(Y.b), g = (Y.S - Y.nr * Y.mS) / Math.max(1, Y.nr - 1), out = [];
+    Y.tables.forEach(t => t.mods.forEach(m => { const a = m.j * (Y.mS + (Y.nr > 1 ? g : 0)) * cb; out.push(RF.toW(F, (m.u0 + m.u1) / 2, t.vF - a - Y.mS * cb / 2)); })); return out; };
+  const onMods = p => modPts().some(q => Math.hypot(q[0] - p[0], q[1] - p[1]) < 1.0);
+  const down = e => { e.currentTarget.setPointerCapture(e.pointerId); const p = toW(e); const vt = mode === 'move' ? nearVert(p, 12) : null, ob = mode === 'move' && !vt ? objAt(p) : null; const tb = mode === 'move' && !vt && !ob && onMods(p) ? (() => { const q = modPts(); return q.reduce((c, x) => [c[0] + x[0] / q.length, c[1] + x[1] / q.length], [0, 0]); })() : null;
+    drag.current = { x: e.clientX, y: e.clientY, cx: v.cx, cy: v.cy, moved: false, vert: vt, obj: ob, p0: p, R0: ob || tb ? JSON.parse(JSON.stringify(R)) : null, box: mode === 'bld' && !draft.length, tb, n0: Yv ? Yv.n : 0 }; };
   const move = e => { const p = toW(e); setHover(ortho(p, e)); const d = drag.current; if (!d) return; const dx = e.clientX - d.x, dy = e.clientY - d.y; if (Math.hypot(dx, dy) > 4) d.moved = true; if (!d.moved) return;
     if (d.box) { setBrect(rectFrom(d.p0, p)); return; }
     if (d.obj) { const n = JSON.parse(JSON.stringify(d.R0)); shift(n, d.obj[0], d.obj[1], p[0] - d.p0[0], p[1] - d.p0[1]); ctl.roofSet(n); setShd(null); return; }
+    if (d.tb) { const n = JSON.parse(JSON.stringify(d.R0)); n.lay.pos = [Math.round((d.tb[0] + p[0] - d.p0[0]) * 100) / 100, Math.round((d.tb[1] + p[1] - d.p0[1]) * 100) / 100]; // drag the whole table: it lands on the nearest spot where it fits
+      n.lay.fill = 'count'; n.lay.nMan = d.n0 + (n.lay.off || []).length; n.lay.cs = 1; if (n.lay.struct === 'multi') n.lay.struct = 'auto'; ctl.roofSet(n); setShd(null); return; }
     if (d.vert) { const V = d.vert; commit(n => { if (V.kind === 'roof') n.pts[V.j] = p; else if (V.kind === 'bld') n.bld[V.i].pts[V.j] = p; else { n.trees[V.i].x = p[0]; n.trees[V.i].y = p[1]; } }); return; }
     const r = svg.current.getBoundingClientRect(), k = Wpx / r.width; setV(o => ({ ...o, cx: d.cx - dx * k / o.s, cy: d.cy + dy * k / o.s })); };
   const up = e => { const d = drag.current; drag.current = null; if (d && d.obj) setSel(d.obj);
@@ -230,10 +236,28 @@ export default function Roof({ ctl, part }) {
       const wid = Math.max(...roofW.map(p => p[0])) - Math.min(...roofW.map(p => p[0])), dep = Math.max(...roofW.map(p => p[1])) - Math.min(...roofW.map(p => p[1])), odd = wid > 120 || dep > 120 || wid < 4 || dep < 4;
       setAna({ roof: roofW, objs, nbs, hp: r1.parapet_m, hb, mpp, cal, odd, size: [wid, dep], mppAI: mAI, basis, floors: r1.floors, notes: [r1.notes, r2.notes].filter(Boolean).join(' · ') }); setAnaBusy('');
     } catch (e) { setAnaBusy(''); setVmsg('🔬 ' + e.message); } };
+  /* 🛰 the satellite map at the project location → one image with an exact scale (from the map tiles), then the same AI analysis finds the roof, its objects
+     and the neighbouring buildings; "neighbours only" keeps the user's drawing and just adds the buildings around, then the table goes to the least-shade spot */
+  const [pendAna, setPendAna] = useState(null);
+  useEffect(() => { if (pendAna && I && ctl.f.roofImg === pendAna) { setPendAna(null); analyze(); } }, [pendAna, I]); // eslint-disable-line
+  const mapSnap = async () => { if (lat == null || lon == null) return setVmsg('حدد موقع المشروع أول (📍 أو البحث).'); setAnaBusy('🛰 بجمّع صورة القمر الصناعي حوالين الموقع…');
+    try { const c0 = R.pts.length > 2 ? R.pts.reduce((q, p) => [q[0] + p[0] / R.pts.length, q[1] + p[1] / R.pts.length], [0, 0]) : [0, 0], A = 70, PX = 1400, mpp = 2 * A / PX, z = 19;
+      const view = [c0[0] - A, c0[1] - A, c0[0] + A, c0[1] + A], T = tiles(lat, lon, view, z); if (!T.length) throw new Error('ما قدرت أجيب صور الخريطة لهالمنطقة.');
+      const cv = document.createElement('canvas'); cv.width = PX; cv.height = PX; const g = cv.getContext('2d'); g.fillStyle = '#888'; g.fillRect(0, 0, PX, PX);
+      await Promise.all(T.map(t => new Promise(res => { const im = new Image(); im.crossOrigin = 'anonymous'; im.onload = () => { g.drawImage(im, (t.x - view[0]) / mpp, (view[3] - t.y) / mpp, t.w / mpp, t.h / mpp); res(); }; im.onerror = () => res(); im.src = t.url; })));
+      let src; try { src = cv.toDataURL('image/jpeg', 0.9); } catch (e) { throw new Error('المتصفح منع قراءة صور الخريطة (CORS). ارفع صورة للموقع بدالها.'); }
+      // the image sits centred on world (0,0): shift the drawing so its centre is the image centre (the drawing stays on the same ground)
+      ctl.set('roofImg', src); commit(n => { const sh = q => [Math.round((q[0] - c0[0]) * 100) / 100, Math.round((q[1] - c0[1]) * 100) / 100];
+        if (c0[0] || c0[1]) { n.pts = n.pts.map(sh); n.bld.forEach(b => { b.pts = (b.pts || []).map(sh); if (b.rect) { b.rect.cx -= c0[0]; b.rect.cy -= c0[1]; } }); n.trees.forEach(t => { const q = sh([t.x, t.y]); t.x = q[0]; t.y = q[1]; }); if (n.lay.pos) n.lay.pos = sh(n.lay.pos); }
+        n.img = { w: PX, h: PX, mpp, rot: 0, k0: 1, calOK: 1 }; n.map = { ...(n.map || {}), on: 0 }; n.cal = 1; });
+      if (c0[0] || c0[1]) { ctl.input('lat', (lat + c0[1] / M_LAT).toFixed(6)); ctl.input('lon', (lon + c0[0] / mLon(lat)).toFixed(6)); }
+      setAnaBusy(''); setPendAna(src); } catch (e) { setAnaBusy(''); setVmsg('🛰 ' + e.message); } };
+  const addNbs = () => { const a = ana; if (!a) return; commit(n => { n.bld = (n.bld || []).filter(b => !(b.ai && b.kind === 'neighbour')).concat(a.nbs); fixH(n); }); setAna(null);
+    setVmsg('✓ انضافت ' + a.nbs.length + ' عمارة مجاورة، والرسمة تبعتك ضلت زي ما هي. هلأ بحط الطاولة بأقل ظل…'); setTimeout(() => goBest(), 400); };
   const applyAna = () => { const a = ana; if (!a) return; commit(n => { if (n.img) { n.img.mpp = a.mpp; if (!a.cal) n.img.calOK = 0; } n.pts = a.roof; n.bld = a.objs.concat(a.nbs).map(({ conf, ...o }) => o); n.trees = n.trees || [];
       if (a.hp > 0) n.hp = a.hp; if (a.hb !== '' && !(+n.hb > 0)) n.hb = a.hb; let bi = 0, ba = 1e9; a.roof.forEach((_, i) => { const z = Math.abs(RF.edgeAz(a.roof, i)); if (z < ba) { ba = z; bi = i; } }); n.lay.edge = bi; n.lay.azMode = 'edge'; delete n.cal; fixH(n); });
     const b = a.roof.reduce((q, p) => [Math.min(q[0], p[0]), Math.min(q[1], p[1]), Math.max(q[2], p[0]), Math.max(q[3], p[1])], [1e9, 1e9, -1e9, -1e9]);
-    setV({ cx: (b[0] + b[2]) / 2, cy: (b[1] + b[3]) / 2, s: Math.min(Wpx / (b[2] - b[0] + 8), Hpx / (b[3] - b[1] + 8)) }); setAna(null); setMode('pan');
+    setV({ cx: (b[0] + b[2]) / 2, cy: (b[1] + b[3]) / 2, s: Math.min(Wpx / (b[2] - b[0] + 8), Hpx / (b[3] - b[1] + 8)) }); setAna(null); setMode('pan'); if (ctl.lastC) setTimeout(() => goBest(), 600);
     setVmsg('✓ انرسم السطح من جديد مع ' + a.objs.length + ' جسم و' + a.nbs.length + ' عمارة مجاورة. راجع الأجسام بالـ 3D واسحب أي جسم لمكانه أو عدّل ارتفاعه.' + (a.cal ? '' : ' المقياس تقديري من الذكاء الاصطناعي: تأكد منه بـ "📏 مقياس الرسم" على ضلع معروف.')); };
   const dlRuby = () => { const Yr = Y || (ctl.lastC ? ctl.roofLayout(R) : null), a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([toRuby(R, Yr && Yr.n ? Yr : null)], { type: 'text/plain' }));
     a.download = 'sanam-roof-' + ((ctl.f.pname || 'project').replace(/[^\w\u0600-\u06FF-]+/g, '_')) + '.rb'; a.click(); };
@@ -312,7 +336,7 @@ export default function Roof({ ctl, part }) {
   const anaView = ana && (() => { const all = ana.roof.concat(...ana.objs.map(o => o.pts), ...ana.nbs.map(o => o.pts)), b = all.reduce((q, p) => [Math.min(q[0], p[0]), Math.min(q[1], p[1]), Math.max(q[2], p[0]), Math.max(q[3], p[1])], [1e9, 1e9, -1e9, -1e9]);
     const Wv = 900, Hv = 460, k = Math.min((Wv - 80) / (b[2] - b[0] || 1), (Hv - 80) / (b[3] - b[1] || 1)), X = x => 40 + (x - b[0]) * k, Yv = y => Hv - 40 - (y - b[1]) * k, ps = P => P.map(p => X(p[0]) + ',' + Yv(p[1])).join(' ');
     const area = Math.abs(RF.area(ana.roof)), PR = ana.roof;
-    return <div className="rf-box rf-ana"><h4>🔬 نتيجة التحليل — راجعها قبل ما تعتمدها <span><button className="b pri" onClick={applyAna}>✓ اعتمد الرسمة</button> <button className="sm" onClick={() => setAna(null)}>إلغاء</button></span></h4>
+    return <div className="rf-box rf-ana"><h4>🔬 نتيجة التحليل — راجعها قبل ما تعتمدها <span><button className="b pri" onClick={applyAna}>✓ اعتمد الرسمة</button> {ana.nbs.length > 0 && R.pts.length > 2 && <button className="b" onClick={addNbs}>➕ ضيف العمارات المجاورة بس (خلّي رسمتي)</button>} <button className="sm" onClick={() => setAna(null)}>إلغاء</button></span></h4>
       <div className="kpis">{[['مساحة السطح', fmt(area, 1) + ' m²'], ['الأضلاع', PR.length], ['الأجسام على السطح', ana.objs.length], ['المباني المجاورة', ana.nbs.length], ['التصوينة', fmt(ana.hp, 1) + ' m'], ['المقياس', fmt(ana.mpp * 100, 2) + ' cm/px' + (ana.cal ? ' (معاير)' : ' (تقدير)')]].map(([a, x]) => <div key={a} className="kpi"><div>{a}</div><b>{x}</b></div>)}</div>
       {ana.odd && <div className="bad">⚠ أبعاد السطح ({fmt(ana.size[0], 1)} × {fmt(ana.size[1], 1)} m) مش منطقية: المقياس غالباً غلط. اعتمد وصحّحه فوراً بـ "📏 مقياس الرسم".</div>}
       {!ana.cal && <div className="warn">المقياس تقدير من الذكاء الاصطناعي ({ana.basis || '—'}). بعد ما تعتمد، صحّحه بـ "📏 مقياس الرسم" على ضلع طوله معروف، وكل الأبعاد بتتعدّل مع بعض.</div>}
@@ -378,6 +402,11 @@ export default function Roof({ ctl, part }) {
     if (h0 >= growH - 0.01) { const nNow = at(h0), nUp = h > h0 + 0.01 ? at(h) : nNow; if (nUp <= nNow && Yv.n >= nNow) { setRcMsg('✓ السطح كله مغطّى (' + nNow + ' لوح على ' + fmt(h0, 2) + ' m): الرفع أكثر ما بيزيد ولا لوح، فخلّيناه على هالارتفاع.'); return; } if (nUp <= nNow) { commit(n => { Object.assign(n.lay, { fill: 'max', cs: 2, off: [] }); delete n.lay.nMan; delete n.lay.nReq; }); return; } }
     commit(n => { n.lay.h1 = Math.round(h * 20) / 20; n.lay.fill = 'max'; delete n.lay.nMan; delete n.lay.nReq; n.lay.cs = 2; n.lay.off = []; if (n.lay.struct !== 'multi') n.lay.struct = 'auto'; }); }; // one structure over the whole roof
   /* the same module count in other array shapes (one / several tables, portrait / landscape, low / raised over the objects): the user picks */
+  const [spot, setSpot] = useState(''), goBest = () => { setSpot('⏳ بجرّب أماكن على كل السطح…'); setTimeout(() => { const r = ctl.bestSpot(); if (!r) return setSpot('ما لقيت مكان تاني بيساع كل الألواح بطاولة وحدة.');
+      commit(n => { Object.assign(n.lay, { fill: 'count', nMan: ctl.lastC.nModules, cs: 1, pos: r.best.pos, off: [] }); if (n.lay.struct === 'multi') n.lay.struct = 'auto'; });
+      setSpot('✓ جرّبت ' + r.n + ' مكان، وحطيت الطاولة بأقل ظل: ' + fmt(r.best.sh * 100, 1) + '٪' + (r.sh0 != null ? ' (كانت ' + fmt(r.sh0 * 100, 1) + '٪)' : '') + ' — ظل الأجسام والتصوينة والعمارات المجاورة بشمس كانون الأول وآذار وحزيران. بتقدر تسحبها بإيدك بوضع "↔ تعديل/إضافة نقاط".'); }, 20); };
+  const spotPanel = Yv && Yv.n && ctl.lastC ? <div className="rf-row">{lat != null && lon != null && <button className="sm" onClick={mapSnap} disabled={!!anaBusy}>{anaBusy || '🛰 حلّل الخريطة والعمارات المجاورة'}</button>}<button className="sm" onClick={goBest}>☀ حط الطاولة بأبعد مكان عن الظل</button>{L.pos && <button className="sm" onClick={() => commit(n => { delete n.lay.pos; })}>↺ رجّعها لمكانها التلقائي</button>}
+    <span className="mute">أو اختار "↔ تعديل/إضافة نقاط" واسحب الألواح بإيدك: بتنحط بأقرب مكان بتساعه.</span>{spot && <div className={spot[0] === '✓' ? 'info' : 'mute'}>{spot}</div>}</div> : null;
   const altPanel = Yv && Yv.n && ctl.lastC ? <div className="rf-box"><h4>📐 أشكال بديلة لنفس العدد ({ctl.lastC.nModules} لوح) <button className="sm" onClick={() => setAltOpen(!altOpen)}>{altOpen ? 'إخفاء' : 'اعرض الاقتراحات'}</button></h4>
     {!altOpen ? <div className="mute">طاولة وحدة، أو كذا طاولة، طولي أو عرضي، واطي أو مرفوع فوق الأجسام: بقارنهم بوزن الحديد وبتختار.</div> : (() => { const A = ctl.layoutAlts(), curK = [Yv.tables.length, Yv.nr, L.orient || 'P', Yv.single ? 1 : 0].join('|');
       if (!A.length) return <div className="mute">ما في شكل ثاني بيساع كل الألواح ضمن حدود الارتفاع.</div>;
@@ -531,6 +560,7 @@ export default function Roof({ ctl, part }) {
       {I && <>{num('اتجاه أعلى الصورة عن الشمال °', I.rot || 0, x => commit(n => { n.img.rot = +x || 0; }), 1, 150)}<span className="mute">المقياس {fmt(I.mpp * 100, 2)} cm/px</span>
         <button className="sm" onClick={() => { ctl.set('roofImg', ''); commit(n => { delete n.img; }); }}>حذف الصورة</button></>}
       {I && <button className="b pri" onClick={analyze} disabled={!!anaBusy}>{anaBusy || '🔬 تحليل الصورة وإعادة الرسم'}</button>}
+      {lat != null && lon != null && <button className="b" onClick={mapSnap} disabled={!!anaBusy} title="بياخد صورة القمر الصناعي حوالين الموقع بمقياس دقيق، وبيحلّلها بالذكاء الاصطناعي: السطح والأجسام والعمارات المجاورة">🛰 حلّل الخريطة والعمارات المجاورة</button>}
       {I && <button className="b" onClick={aiScan} disabled={aiBusy}>{aiBusy ? '🤖 جاري المسح…' : '🤖 مسح بالذكاء الاصطناعي (OpenAI)'}</button>}
       {num('تسامح الألوان للكشف', tol, x => setTol(+x || 32), 2, 120)}
       <button className="sm" onClick={restart}>↺ ابدأ من جديد (امسح الصورة والرسمة)</button>
@@ -565,7 +595,7 @@ export default function Roof({ ctl, part }) {
       {R.trees.map((t2, i) => <span key={'t' + i} className="rf-chip">🌳 {i + 1} · {t2.h} m <button onClick={() => commit(n => { n.trees.splice(i, 1); })}>×</button></span>)}
       <button className="sm" onClick={() => commit(n => { n.bld = []; n.trees = []; })}>حذف كل الأجسام</button></div>}
     </div>}
-    {sec === 'mods' && <div className="rf-secb">{!view3 && R.pts.length > 2 && tableRot}{stPanel}{altPanel}<div className="rf-grid">
+    {sec === 'mods' && <div className="rf-secb">{!view3 && R.pts.length > 2 && tableRot}{spotPanel}{stPanel}{altPanel}<div className="rf-grid">
       <div className="rf-box"><h4>الاتجاه (Azimuth)</h4>
         <select value={L.azMode} onChange={e => set('azMode', e.target.value)}><option value="edge">موازي لحافة السطح المختارة (الخضرا)</option><option value="south">جنوب تماماً (0°)</option><option value="manual">يدوي</option></select>
         {L.azMode === 'manual' && num('Azimuth °', L.az, x => set('az', x), 0.5)}
